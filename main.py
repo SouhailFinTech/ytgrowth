@@ -17,6 +17,33 @@ import pandas as pd
 import google.generativeai as genai
 
 # ════════════════════════════════════════════════════════════
+# SESSION STATE + SECRETS AUTO-FILL (must be before anything else)
+# ════════════════════════════════════════════════════════════
+
+if 'config' not in st.session_state:
+    st.session_state['config'] = {
+        'channel_name'   : 'AlgoQuant Trading',
+        'creator_bio'    : 'Financial engineer from Morocco, self-taught quant',
+        'products'       : 'SaaS, MQL5 EAs, courses, freelance',
+        'subscribers'    : 5,
+        'watch_hours'    : 1.4,
+        'avg_ctr'        : 2.5,
+        'total_videos'   : 4,
+        'gemini_api_key' : '',
+        'youtube_api_key': '',
+    }
+
+# Auto-fill API keys from Streamlit secrets if available
+try:
+    if hasattr(st, 'secrets'):
+        if 'GEMINI_API_KEY' in st.secrets and not st.session_state['config'].get('gemini_api_key'):
+            st.session_state['config']['gemini_api_key'] = st.secrets['GEMINI_API_KEY']
+        if 'YOUTUBE_API_KEY' in st.secrets and not st.session_state['config'].get('youtube_api_key'):
+            st.session_state['config']['youtube_api_key'] = st.secrets['YOUTUBE_API_KEY']
+except Exception:
+    pass
+
+# ════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ════════════════════════════════════════════════════════════
 
@@ -175,7 +202,7 @@ def get_model():
     if not key:
         return None
     genai.configure(api_key=key)
-    return genai.GenerativeModel('Gemini 3.1 Flash Lite')
+    return genai.GenerativeModel('gemini-3.1-flash-lite')
 
 
 def call_gemini(model, prompt, max_tokens=2000):
@@ -184,7 +211,10 @@ def call_gemini(model, prompt, max_tokens=2000):
             resp = model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens, temperature=0.7)
+                    max_output_tokens=max_tokens,
+                    temperature=0.7,
+                ),
+                request_options={"timeout": 120}
             )
             raw = resp.text.strip()
             raw = re.sub(r'```json|```', '', raw).strip()
@@ -194,7 +224,7 @@ def call_gemini(model, prompt, max_tokens=2000):
             return json.loads(raw)
         except Exception as e:
             if attempt == 0:
-                time.sleep(2)
+                time.sleep(3)
             else:
                 raise e
 
@@ -205,12 +235,15 @@ def call_gemini_text(model, prompt, max_tokens=2000):
             resp = model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens, temperature=0.7)
+                    max_output_tokens=max_tokens,
+                    temperature=0.7,
+                ),
+                request_options={"timeout": 120}
             )
             return resp.text.strip()
         except Exception as e:
             if attempt == 0:
-                time.sleep(2)
+                time.sleep(3)
             else:
                 raise e
 
@@ -495,16 +528,6 @@ def video_card(v):
 # ════════════════════════════════════════════════════════════
 # SIDEBAR
 # ════════════════════════════════════════════════════════════
-
-if 'config' not in st.session_state:
-    st.session_state['config'] = {
-        'channel_name':'AlgoQuant Trading',
-        'creator_bio':'Financial engineer from Morocco, self-taught quant',
-        'products':'SaaS, MQL5 EAs, courses, freelance',
-        'subscribers':5, 'watch_hours':1.4,
-        'avg_ctr':2.5, 'total_videos':4,
-        'gemini_api_key':'', 'youtube_api_key':'',
-    }
 
 cfg = st.session_state['config']
 
