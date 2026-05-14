@@ -1,9 +1,9 @@
 """
-AlgoQuant Studio v2 — Full Production SaaS
+AlgoQuant Studio v2.1 — Full Production SaaS
 Levels: Persistence (Supabase) + Auth (Google OAuth) + Auto Reports + Thumbnail Generator
++ SHORT FIX: Format-aware script generation
++ NEW FEATURE: Long Script → 3 Shorts Extractor with Visual Plans
 Single file. Deploy: streamlit run algoquant_studio_v2.py
-
-FIXED: All SyntaxError issues with nested f-strings and escaped quotes
 """
 
 import json, re, time, os, io, base64, textwrap, requests
@@ -121,7 +121,6 @@ def get_user_info(access_token: str):
 def is_logged_in():
     return bool(st.session_state.get('user'))
 
-
 def get_user_id():
     user = st.session_state.get('user', {})
     return user.get('id', 'anonymous')
@@ -211,7 +210,7 @@ def init_session():
 
 
 # ════════════════════════════════════════════════════════════
-# PAGE CONFIG
+# PAGE CONFIG & CSS
 # ════════════════════════════════════════════════════════════
 
 st.set_page_config(
@@ -220,10 +219,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# ════════════════════════════════════════════════════════════
-# GLOBAL CSS
-# ════════════════════════════════════════════════════════════
 
 st.markdown("""
 <style>
@@ -260,8 +255,6 @@ h1,h2,h3,h4{font-family:'Space Grotesk',sans-serif!important;color:var(--text)!i
 .step-box{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:0.75rem 1rem;margin-bottom:0.5rem;}
 .script-block{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:1rem 1.25rem;font-family:'JetBrains Mono',monospace;font-size:0.82rem;color:#c9d1d9;line-height:1.7;white-space:pre-wrap;}
 .divider{border:none;border-top:1px solid var(--border);margin:1.25rem 0;}
-.history-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0.85rem 1rem;margin-bottom:0.5rem;cursor:pointer;transition:border-color 0.2s;}
-.history-card:hover{border-color:var(--accent);}
 #MainMenu,footer,header{visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
@@ -277,9 +270,7 @@ if has_oauth and not is_logged_in():
     login_page()
     st.stop()
 elif not is_logged_in():
-    st.session_state['user'] = {
-        'id': 'demo', 'email': '', 'name': 'Creator', 'picture': '', 'access_token': ''
-    }
+    st.session_state['user'] = {'id': 'demo', 'email': '', 'name': 'Creator', 'picture': '', 'access_token': ''}
 
 cfg     = st.session_state['config']
 user    = st.session_state.get('user', {})
@@ -327,14 +318,11 @@ def call_gemini(model, prompt, max_tokens=2000):
             raw = resp.text.strip()
             raw = re.sub(r'```json|```', '', raw).strip()
             o, c = raw.count('{'), raw.count('}')
-            if o > c:
-                raw += '}' * (o - c)
+            if o > c: raw += '}' * (o - c)
             return json.loads(raw)
         except Exception as e:
-            if attempt == 0:
-                time.sleep(3)
-            else:
-                raise e
+            if attempt == 0: time.sleep(3)
+            else: raise e
 
 
 def call_gemini_text(model, prompt, max_tokens=2000):
@@ -348,10 +336,8 @@ def call_gemini_text(model, prompt, max_tokens=2000):
             )
             return resp.text.strip()
         except Exception as e:
-            if attempt == 0:
-                time.sleep(3)
-            else:
-                raise e
+            if attempt == 0: time.sleep(3)
+            else: raise e
 
 
 def build_context():
@@ -472,21 +458,28 @@ Return ONLY valid JSON no markdown:
 """,1200)
 
 
-def ai_script_part(model,idea,title,hook,funnel,ctx,part,prev=''):
-    cont = f'\nContinue from: "{prev[-300:]}"' if part==2 else ''
-    inst = 'Write FIRST HALF ~1000 words. End at natural transition.' if part==1 else 'Write SECOND HALF ~1000 words. End with subscribe CTA then funnel CTA.'
-    return call_gemini_text(model,f"""
+def ai_script_part(model, idea, title, hook, funnel, ctx, fmt, part, prev=''):
+    """✅ FIXED: Now respects 'short' vs 'long' format."""
+    cont = f'\nContinue from: "{prev[-300:]}"' if part == 2 else ''
+    
+    if fmt == 'short':
+        inst = 'Write the COMPLETE SHORT script. STRICTLY 100-130 words total. Under 55 seconds when spoken. Fast pace. Result first. Zero fluff. End with direct CTA.'
+    else:
+        inst = 'Write FIRST HALF ~1000 words. End at natural transition.' if part == 1 else 'Write SECOND HALF ~1000 words. End with subscribe CTA then funnel CTA.'
+        
+    return call_gemini_text(model, f"""
 You are a YouTube scriptwriter for algorithmic trading.
 {ctx}
+Format: {FORMAT_CONTEXT[fmt]}
 Title: {title}
 Idea: {idea}
 Funnel: {FUNNEL_DESCRIPTIONS[funnel]}
 {cont}
-Rules: TTS-friendly short sentences. Show concept not code. [minute] markers. Never Hi Welcome.
+Rules: TTS-friendly short sentences. Show concept not code. {'Include [minute] markers.' if fmt=='long' else 'Keep it tight, one continuous flow. No [minute] markers.'} Never Hi Welcome.
 {inst}
 {'Start with: '+hook if part==1 else ''}
 Return ONLY raw script text. No JSON. No markdown.
-""",2000)
+""", 800 if fmt=='short' else 2000)
 
 
 def ai_packaging(model,idea,title,fmt,funnel,ctx):
@@ -548,10 +541,8 @@ Video title: {title}
 Key result: {key_result}
 Style: {style}
 Current channel CTR: 2.5% — need to reach 4%+
-
 Generate a detailed image generation prompt for this thumbnail.
 It must work at small sizes (mobile), have high contrast, max 4 words of text visible.
-
 Return ONLY valid JSON no markdown:
 {{"image_prompt":"detailed prompt for image generation","main_text":"max 3 words","sub_text":"2-3 words or null","color_scheme":"hex colors","layout":"description","predicted_ctr":"range","canva_steps":"numbered steps to build in Canva"}}
 """, 800)
@@ -563,22 +554,45 @@ def generate_thumbnail_image(prompt_text):
         encoded = requests.utils.quote(prompt_text[:500])
         url = f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&nologo=true"
         resp = requests.get(url, timeout=30)
-        if resp.status_code == 200:
-            return resp.content
-    except Exception:
-        pass
+        if resp.status_code == 200: return resp.content
+    except Exception: pass
     return None
 
 
+def ai_extract_shorts_from_long(model, long_script, ctx, funnel='ea'):
+    """✅ NEW: Extract 3 distinct Shorts from a long script."""
+    return call_gemini(model, f"""
+You are a YouTube Shorts strategist for algorithmic trading.
+{ctx}
+Original Long Script:
+{long_script[:4000]}  # Truncate for token limit if huge
+
+Extract 3 completely different Shorts from this long script. Each Short must focus on a distinct concept, trap, or result from the original.
+Rules:
+- Format: UNDER 60 seconds (100-130 words each)
+- Hook: First sentence MUST be the result/bold claim. Never Hi/Welcome.
+- Structure: Hook (0-3s) -> Value/Proof (3-40s) -> CTA (40-55s)
+- Include visual cues for each segment
+- Funnel: {funnel}
+
+Return ONLY valid JSON no markdown:
+{{"shorts":[
+  {{"title":"", "title_score":85, "hook":"", "script":"", "description":"", "tags":["t1","t2","t3"], "visual_plan":{{"hook_visual":"","value_visual":"","cta_visual":""}}, "why_it_works":""}},
+  {{"title":"", "title_score":82, "hook":"", "script":"", "description":"", "tags":["t1","t2","t3"], "visual_plan":{{"hook_visual":"","value_visual":"","cta_visual":""}}, "why_it_works":""}},
+  {{"title":"", "title_score":80, "hook":"", "script":"", "description":"", "tags":["t1","t2","t3"], "visual_plan":{{"hook_visual":"","value_visual":"","cta_visual":""}}, "why_it_works":""}}
+]}}
+""", 3500)
+
+
 # ════════════════════════════════════════════════════════════
-# AUTOMATED REPORT (Level 3)
+# AUTOMATED REPORT & EMAIL
 # ════════════════════════════════════════════════════════════
 
 def generate_weekly_report(model, competitor_data, channel_config):
     trending = competitor_data.get('trending', [])
     ctx = build_context()
     tt = '\n'.join([f"- {v['title']} ({v.get('views_per_day',0):,.0f}/day)" for v in trending[:5]])
-    report = call_gemini(model, f"""
+    return call_gemini(model, f"""
 YouTube content strategist for algorithmic trading.
 {ctx}
 Trending this week:\n{tt}
@@ -587,40 +601,30 @@ Generate a complete Monday morning content report.
 Return ONLY valid JSON no markdown:
 {{"report_date":"{datetime.now().strftime('%Y-%m-%d')}","weekly_summary":"2 sentences on channel status","top_3_video_ideas":[{{"rank":1,"title":"","hook":"","why_this_week":"","funnel":"ea","estimated_virality":85}},{{"rank":2,"title":"","hook":"","why_this_week":"","funnel":"saas","estimated_virality":80}},{{"rank":3,"title":"","hook":"","why_this_week":"","funnel":"course","estimated_virality":78}}],"this_week_priorities":["priority 1","priority 2","priority 3","priority 4"],"thumbnail_fix":"which existing thumbnail to fix and why","ctr_diagnosis":"current CTR analysis and fix","retention_diagnosis":"current retention analysis and fix"}}
 """, 1500)
-    return report
 
 
 def send_email_report(report_data, email):
     try:
         resend_key = st.secrets.get("RESEND_API_KEY", "")
-        if not resend_key or not email:
-            return False
+        if not resend_key or not email: return False
         html = f"""
         <div style='font-family:sans-serif;max-width:600px;margin:0 auto;background:#111318;color:#e8eaf0;padding:2rem;border-radius:12px;'>
             <h1 style='color:#00e5a0;'>⚡ AlgoQuant Weekly Report</h1>
             <p style='color:#6b7280;'>{report_data.get('report_date','')}</p>
-            <h2 style='color:#e8eaf0;'>Channel Status</h2>
-            <p>{report_data.get('weekly_summary','')}</p>
+            <h2 style='color:#e8eaf0;'>Channel Status</h2><p>{report_data.get('weekly_summary','')}</p>
             <h2 style='color:#e8eaf0;'>Top 3 Video Ideas This Week</h2>
-            {''.join([f"<div style='background:#1e2229;border-radius:8px;padding:1rem;margin-bottom:0.75rem;'><div style='font-weight:700;color:#00e5a0;'>#{idea['rank']} — {idea['title']}</div><div style='color:#9ca3af;font-size:0.85rem;margin-top:4px;'>{idea['hook']}</div><div style='color:#6b7280;font-size:0.78rem;margin-top:4px;'>Virality: {idea['estimated_virality']}/100 · Funnel: {idea['funnel']}</div></div>" for idea in report_data.get('top_3_video_ideas',[])])}
-            <h2 style='color:#e8eaf0;'>This Week Priorities</h2>
-            <ul>{''.join([f"<li style='margin-bottom:4px;'>{p}</li>" for p in report_data.get('this_week_priorities',[])])}</ul>
+            {''.join([f"<div style='background:#1e2229;border-radius:8px;padding:1rem;margin-bottom:0.75rem;'><div style='font-weight:700;color:#00e5a0;'>#{idea['rank']} — {idea['title']}</div><div style='color:#9ca3af;font-size:0.85rem;margin-top:4px;'>{idea['hook']}</div></div>" for idea in report_data.get('top_3_video_ideas',[])])}
             <h2 style='color:#e8eaf0;'>Diagnostics</h2>
-            <p><b>CTR:</b> {report_data.get('ctr_diagnosis','')}</p>
-            <p><b>Retention:</b> {report_data.get('retention_diagnosis','')}</p>
-            <p><b>Thumbnail fix:</b> {report_data.get('thumbnail_fix','')}</p>
-            <hr style='border-color:#1e2229;'>
-            <p style='color:#6b7280;font-size:0.75rem;'>AlgoQuant Studio · Unsubscribe in Settings</p>
+            <p><b>CTR:</b> {report_data.get('ctr_diagnosis','')}</p><p><b>Retention:</b> {report_data.get('retention_diagnosis','')}</p>
+            <hr style='border-color:#1e2229;'><p style='color:#6b7280;font-size:0.75rem;'>AlgoQuant Studio</p>
         </div>
         """
         resp = requests.post("https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={"from": "AlgoQuant Studio <report@algoquant.studio>",
-                  "to": [email], "subject": f"⚡ Your Weekly Content Report — {report_data.get('report_date','')}",
-                  "html": html})
+                  "to": [email], "subject": f"⚡ Weekly Content Report — {report_data.get('report_date','')}", "html": html})
         return resp.status_code == 200
-    except Exception:
-        return False
+    except Exception: return False
 
 
 # ════════════════════════════════════════════════════════════
@@ -644,7 +648,6 @@ def video_card_html(v):
     fmt_c = '#0066ff' if v.get('format','')=='Long' else '#00e5a0'
     ret_d = f"{v.get('retention',0)}%" if v.get('retention',0)>0 else '—'
     ctr_d = f"{v.get('ctr',0)}%" if v.get('ctr',0)>0 else '—'
-    p3    = str(int(v['p3_score'])) if v.get('p3_score') else '—'
     st.markdown(f"""
     <div class='video-card'>
         <div style='display:flex;justify-content:space-between;align-items:flex-start;'>
@@ -654,14 +657,11 @@ def video_card_html(v):
                     <span style='font-size:0.75rem;color:#6b7280;'>👁 <b style='color:#e8eaf0;'>{v.get('views',0)}</b></span>
                     <span style='font-size:0.75rem;'>CTR <b style='color:{ctr_c};'>{ctr_d}</b></span>
                     <span style='font-size:0.75rem;'>Ret <b style='color:{ret_c};'>{ret_d}</b></span>
-                    <span style='font-size:0.75rem;color:#6b7280;'>+{v.get('subs',0)} subs</span>
-                    <span style='font-size:0.75rem;color:#ffd700;'>P3:{p3}</span>
                 </div>
             </div>
             <span style='font-size:0.65rem;font-weight:700;color:{fmt_c};border:1px solid {fmt_c};border-radius:4px;padding:2px 8px;margin-left:8px;'>{v.get('format','').upper()}</span>
         </div>
     </div>""", unsafe_allow_html=True)
-
 
 DEFAULT_VIDEOS = [
     {'title':'Why Your Python Backtesting Is Lying to You','format':'Short','views':76,'ctr':2.5,'retention':37.5,'subs':2,'p3_score':None},
@@ -688,10 +688,8 @@ with st.sidebar:
     else:
         st.markdown(f"<div style='padding:0.75rem 0 1.25rem;'><div style='font-size:1.4rem;font-weight:700;color:#00e5a0;'>⚡ AlgoQuant</div><div style='font-size:0.72rem;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;'>Content Intelligence Studio</div></div>", unsafe_allow_html=True)
 
-    page = st.radio("",
-        ["🏠  Dashboard","🔍  Competitor Intel","📊  My Channel",
-         "🏭  Video Factory","📁  History","📧  Weekly Report","⚙️  Settings"],
-        label_visibility="collapsed")
+    page = st.radio("", ["🏠  Dashboard","🔍  Competitor Intel","📊  My Channel",
+         "🏭  Video Factory","📁  History","📧  Weekly Report","⚙️  Settings"], label_visibility="collapsed")
 
     st.markdown("<hr style='border-color:#1e2229;margin:1rem 0;'>", unsafe_allow_html=True)
     section("Channel Status")
@@ -722,8 +720,7 @@ def page_dashboard():
              (f"{cfg.get('avg_ctr',2.5)}%","Avg CTR","Target: 4%+",'#ffd700' if cfg.get('avg_ctr',2.5)<4 else '#00e5a0'),
              (str(cfg.get('total_videos',4)),"Videos Posted","Keep posting",'#00e5a0')]
     for col,(val,lbl,sub,col_) in zip([c1,c2,c3,c4],items):
-        with col:
-            st.markdown(f"<div class='metric-card'><div class='metric-val' style='color:{col_};'>{val}</div><div class='metric-lbl'>{lbl}</div><div style='font-size:0.7rem;color:#6b7280;margin-top:6px;'>{sub}</div></div>", unsafe_allow_html=True)
+        with col: st.markdown(f"<div class='metric-card'><div class='metric-val' style='color:{col_};'>{val}</div><div class='metric-lbl'>{lbl}</div><div style='font-size:0.7rem;color:#6b7280;margin-top:6px;'>{sub}</div></div>", unsafe_allow_html=True)
     st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
     left,right = st.columns([3,2])
     with left:
@@ -745,8 +742,7 @@ def page_dashboard():
     steps=[("1","Competitor Intel","Run Phase 1 — see what is trending"),("2","Update Analytics","Paste stats into My Channel"),("3","Auto Suggest","Get 3 video ideas from trends"),("4","Video Factory","Generate full package for best idea"),("5","Record & Post","OBS + Chatterbox + Shotcut + Upload")]
     cols=st.columns(5)
     for col,(num,t,d) in zip(cols,steps):
-        with col:
-            st.markdown(f"<div style='background:#111318;border:1px solid #1e2229;border-radius:12px;padding:1rem;text-align:center;'><div style='width:28px;height:28px;background:rgba(0,229,160,0.15);border:1px solid #00e5a0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;font-size:0.75rem;font-weight:700;color:#00e5a0;'>{num}</div><div style='font-size:0.78rem;font-weight:600;margin-bottom:4px;'>{t}</div><div style='font-size:0.68rem;color:#6b7280;line-height:1.4;'>{d}</div></div>", unsafe_allow_html=True)
+        with col: st.markdown(f"<div style='background:#111318;border:1px solid #1e2229;border-radius:12px;padding:1rem;text-align:center;'><div style='width:28px;height:28px;background:rgba(0,229,160,0.15);border:1px solid #00e5a0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;font-size:0.75rem;font-weight:700;color:#00e5a0;'>{num}</div><div style='font-size:0.78rem;font-weight:600;margin-bottom:4px;'>{t}</div><div style='font-size:0.68rem;color:#6b7280;line-height:1.4;'>{d}</div></div>", unsafe_allow_html=True)
 
 
 def page_competitor():
@@ -780,7 +776,6 @@ def page_competitor():
             except Exception as e: st.error(f"Error: {e}")
     else:
         st.markdown("<div style='background:#111318;border:1px solid #1e2229;border-radius:12px;padding:2rem;text-align:center;margin-top:2rem;'><div style='font-size:2rem;margin-bottom:0.5rem;'>🔍</div><div style='font-size:1rem;font-weight:600;margin-bottom:0.5rem;'>Ready to fetch competitor data</div><div style='font-size:0.82rem;color:#6b7280;'>Add YouTube API key in Settings then click above.</div></div>",unsafe_allow_html=True)
-
 
 def _show_competitor_results(results):
     st.markdown("<hr class='divider'>",unsafe_allow_html=True)
@@ -832,7 +827,6 @@ def page_analytics():
     with c2: st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span style='font-weight:600;'>Watch Hours</span><span style='color:#0066ff;font-weight:700;'>{cfg.get('watch_hours',1.4):.1f}/4,000h</span></div><div style='background:#1e2229;border-radius:6px;height:8px;'><div style='background:linear-gradient(90deg,#0066ff,#0044cc);width:{min(hp2*50,100):.2f}%;height:8px;border-radius:6px;'></div></div><div style='font-size:0.72rem;color:#6b7280;margin-top:6px;'>{hp2:.3f}% · Need {max(4000-cfg.get('watch_hours',1.4),0):.1f}h more</div></div>",unsafe_allow_html=True)
     st.markdown("<div style='margin:1.5rem 0;'></div>",unsafe_allow_html=True)
     section("Video Performance Tracker")
-    st.markdown("<div style='font-size:0.78rem;color:#6b7280;margin-bottom:0.75rem;'>Update after each video reaches 7 days. P3 = Phase 3 title score.</div>",unsafe_allow_html=True)
     for v in DEFAULT_VIDEOS: video_card_html(v)
     st.markdown("<div style='margin:1.5rem 0;'></div>",unsafe_allow_html=True)
     section("Automated Diagnosis")
@@ -853,7 +847,9 @@ def page_factory():
     if not gemini_key:
         st.warning("⚠️  Add your Gemini API key in Settings.")
         return
-    tab1,tab2,tab3,tab4=st.tabs(["🏭  Full Factory","💡  Auto Suggest","📊  Title Scorer","🖼️  Thumbnail Generator"])
+    
+    # ✅ UPDATED: Added 5th tab for Long → Shorts Extractor
+    tab1,tab2,tab3,tab4,tab5=st.tabs(["🏭  Full Factory","💡  Auto Suggest","📊  Title Scorer","🖼️  Thumbnail Generator", "📐  Long → Shorts"])
 
     # ── FULL FACTORY ──
     with tab1:
@@ -895,20 +891,29 @@ def page_factory():
                 st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span class='metric-lbl'>TITLE</span>{score_badge(ts)}</div><div style='font-size:1rem;font-weight:700;margin-bottom:8px;'>\"{th['title']}\"</div><div style='font-size:0.75rem;color:#6b7280;margin-bottom:8px;'>{th['title_reasoning']}</div>{alts}</div>",unsafe_allow_html=True)
             with c2_:
                 st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span class='metric-lbl'>HOOK</span>{score_badge(hs)}</div><div style='font-size:0.82rem;color:#c9d1d9;line-height:1.7;font-family:\"JetBrains Mono\",monospace;'>{th['hook_script']}</div><div style='font-size:0.72rem;color:#6b7280;margin-top:8px;'>{th['hook_reasoning']}</div></div>",unsafe_allow_html=True)
+            
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 3 — Full Script")
-            with st.spinner("Writing script part 1 of 2..."):
-                try: p1=ai_script_part(model,idea,th['title'],th['hook_script'],funnel,ctx,1)
-                except Exception as e: st.error(str(e)); return
-            with st.spinner("Writing script part 2 of 2..."):
-                try: p2=ai_script_part(model,idea,th['title'],th['hook_script'],funnel,ctx,2,p1)
-                except Exception: p2=""
-            script=p1+"\n\n"+p2
+            
+            # ✅ FIXED: Format-aware script generation
+            if fmt == 'short':
+                with st.spinner("Writing Short script (100-130 words)..."):
+                    try: script = ai_script_part(model, idea, th['title'], th['hook_script'], funnel, ctx, fmt, 1)
+                    except Exception as e: st.error(str(e)); return
+            else:
+                with st.spinner("Writing script part 1 of 2..."):
+                    try: p1 = ai_script_part(model, idea, th['title'], th['hook_script'], funnel, ctx, fmt, 1)
+                    except Exception as e: st.error(str(e)); return
+                with st.spinner("Writing script part 2 of 2..."):
+                    try: p2 = ai_script_part(model, idea, th['title'], th['hook_script'], funnel, ctx, fmt, 2, p1)
+                    except Exception: p2 = ""
+                script = p1 + "\n\n" + p2
+
             wc=len(script.split()); est=round(wc/130)
             tts_fixes = {'MQL5':'Em Cue El Five','FTMO':'F T M O','MT5':'M T 5','NFP':'N F P','Sharpe':'Sharp','EURUSD':'Euro U S D','EA':'E A'}
             script_tts = script
-            for k,v in tts_fixes.items():
-                script_tts = script_tts.replace(k,v)
+            for k,v in tts_fixes.items(): script_tts = script_tts.replace(k,v)
+            
             st.markdown(f"<div style='display:flex;gap:1rem;margin-bottom:0.75rem;'><span class='score-badge score-green'>📝 {wc} words</span><span class='score-badge score-green'>⏱️ ~{est} min</span><span class='score-badge score-yellow'>🔊 TTS-ready version below</span></div>",unsafe_allow_html=True)
             stab1,stab2=st.tabs(["📄  Original Script","🔊  TTS-Ready (Chatterbox)"])
             with stab1: st.markdown(f"<div class='script-block'>{script}</div>",unsafe_allow_html=True)
@@ -918,6 +923,7 @@ def page_factory():
             col_dl1,col_dl2=st.columns(2)
             with col_dl1: st.download_button("⬇️  Download Script",script,file_name=f"script_{datetime.now().strftime('%Y%m%d_%H%M')}.txt")
             with col_dl2: st.download_button("⬇️  Download TTS Version",script_tts,file_name=f"script_tts_{datetime.now().strftime('%Y%m%d_%H%M')}.txt")
+            
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 4 — Thumbnail · SEO · Shorts · CTA")
             with st.spinner("Generating packaging..."):
@@ -928,7 +934,8 @@ def page_factory():
             shorts=pk.get('shorts',[])
             cta=pk.get('cta_script','')
             rec=th_data.get('recommended','1')
-            # ✅ FIXED: Thumbnail options rendering
+            
+            # ✅ FIXED: Thumbnail options rendering (no nested f-strings)
             tc1, tc2 = st.columns(2)
             for col, key in zip([tc1, tc2], ['option_1', 'option_2']):
                 with col:
@@ -952,6 +959,7 @@ def page_factory():
                         f"</div>"
                     )
                     st.markdown(card_html, unsafe_allow_html=True)
+                    
             section("SEO Package")
             tags_html=''.join([f"<span class='tag'>{t}</span>" for t in seo.get('tags',[])])
             st.markdown(f"<div class='step-box'><div style='font-size:0.78rem;font-weight:600;margin-bottom:6px;'>Description:</div><div style='font-size:0.78rem;color:#9ca3af;'>{seo.get('description_line1','')}</div><div style='font-size:0.78rem;color:#9ca3af;'>{seo.get('description_line2','')}</div><div style='margin-top:10px;'>{tags_html}</div></div>",unsafe_allow_html=True)
@@ -967,7 +975,7 @@ def page_factory():
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             st.markdown(f"<div style='background:rgba(0,229,160,0.05);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:1.25rem;'><div style='font-size:0.9rem;font-weight:700;color:#00e5a0;margin-bottom:0.75rem;'>✅  Video Factory Complete — saved to History</div><div style='display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;'><span style='font-size:0.8rem;color:#9ca3af;'>Virality <b style='color:#00e5a0;'>{vs}/100</b></span><span style='font-size:0.8rem;color:#9ca3af;'>Title <b style='color:#00e5a0;'>{ts}/100</b></span><span style='font-size:0.8rem;color:#00e5a0;'>Hook <b>{hs}/100</b></span><span style='font-size:0.8rem;color:#9ca3af;'>Script <b style='color:#e8eaf0;'>{wc} words</b></span><span style='font-size:0.8rem;color:#9ca3af;'>~{est} min</span></div><div style='font-size:0.8rem;color:#6b7280;line-height:1.8;'>1. Download TTS script → paste into Chatterbox &nbsp;·&nbsp; 2. Build thumbnail in Canva &nbsp;·&nbsp; 3. Record OBS &nbsp;·&nbsp; 4. Sync Shotcut &nbsp;·&nbsp; 5. Upload with SEO &nbsp;·&nbsp; 6. Come back to History to log real CTR</div></div>",unsafe_allow_html=True)
 
-    # ── AUTO SUGGEST — ✅ FIXED NESTED F-STRING ISSUE ──
+    # ── AUTO SUGGEST ──
     with tab2:
         section("Auto-suggest 3 video ideas from competitor trends")
         st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Run Competitor Intel first for best results.</div>",unsafe_allow_html=True)
@@ -984,11 +992,9 @@ def page_factory():
             for s in result.get('suggestions',[]):
                 fmt_=s.get('format','').upper().replace('_',' ')
                 score=s.get('title_score',0)
-                # ✅ FIX: Build score class separately to avoid nested f-string
                 score_class = 'score-green' if score>=75 else 'score-yellow'
                 fmt_c='#0066ff' if 'LONG' in fmt_ else '#00e5a0'
                 tags_html=''.join([f"<span class='tag'>{t}</span>" for t in s.get('tags',[])])
-                # ✅ FIX: Build card HTML with pre-computed values
                 card_html = (
                     f"<div class='video-card' style='margin-bottom:1rem;'>"
                     f"<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;'>"
@@ -1044,7 +1050,7 @@ def page_factory():
                     st.markdown(f"<div class='step-box' style='border-left-color:{border};margin-bottom:0.5rem;'><div style='font-size:0.72rem;font-weight:700;color:#6b7280;margin-bottom:4px;'>VERSION {hw['version']} — {hw['type']}{label}</div><div class='script-block' style='font-size:0.78rem;padding:0.6rem 0.8rem;margin-bottom:6px;'>{hw['script']}</div><div style='font-size:0.72rem;color:#6b7280;'>{hw['why']}</div></div>",unsafe_allow_html=True)
             step_box("🖼️ Thumbnail Concept",result.get('thumbnail_concept',''))
 
-    # ── THUMBNAIL GENERATOR (Level 4) ──
+    # ── THUMBNAIL GENERATOR ──
     with tab4:
         section("AI Thumbnail Generator")
         st.markdown("<div style='font-size:0.82rem;color:#6b7280;margin-bottom:1rem;'>Generates a thumbnail brief + actual image using AI. Free via Pollinations AI.</div>",unsafe_allow_html=True)
@@ -1088,6 +1094,60 @@ def page_factory():
                 else:
                     st.error("Image generation failed. Try the design brief instead and build in Canva manually.")
 
+    # ── 📐 LONG → SHORTS EXTRACTOR (NEW) ──
+    with tab5:
+        section("📐 Long Script → 3 Shorts Extractor")
+        st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Paste your long-form script below. AI will extract 3 distinct, high-retention Shorts with titles, hooks, scripts, SEO descriptions, and frame-by-frame visual plans.</div>", unsafe_allow_html=True)
+        
+        long_script_input = st.text_area("Paste Full Long Video Script", height=250, placeholder="Paste your complete 10-20 minute script here...")
+        col_f, col_b = st.columns([1, 3])
+        with col_f: ext_funnel = st.selectbox("Target Funnel", list(FUNNEL_DESCRIPTIONS.keys()), key="ext_funnel")
+        with col_b: 
+            if st.button("⚡  Extract 3 Shorts", use_container_width=True) and long_script_input.strip():
+                model = get_model()
+                ctx = build_context()
+                with st.spinner("Analyzing script & extracting Shorts..."):
+                    try:
+                        result = ai_extract_shorts_from_long(model, long_script_input, ctx, ext_funnel)
+                    except Exception as e:
+                        st.error(f"Extraction failed: {e}")
+                        return
+                
+                if 'shorts' in result:
+                    for i, s in enumerate(result['shorts'], 1):
+                        st.markdown(f"<hr class='divider'>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='font-size:1rem;font-weight:700;color:#00e5a0;margin-bottom:0.5rem;'>🎬 SHORT #{i}: {s.get('title','')} <span class='score-badge score-green' style='margin-left:8px;'>{s.get('title_score',0)}/100</span></div>", unsafe_allow_html=True)
+                        
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown(f"<div class='metric-card'><div class='metric-lbl'>HOOK (0-3s)</div><div style='font-size:0.85rem;color:#c9d1d9;line-height:1.5;font-family:\"JetBrains Mono\",monospace;margin-top:4px;'>{s.get('hook','')}</div></div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='metric-card' style='margin-top:0.75rem;'><div class='metric-lbl'>FULL SCRIPT (100-130 words)</div><div style='font-size:0.8rem;color:#c9d1d9;line-height:1.7;font-family:\"JetBrains Mono\",monospace;margin-top:4px;max-height:200px;overflow-y:auto;'>{s.get('script','')}</div></div>", unsafe_allow_html=True)
+                        with c2:
+                            vp = s.get('visual_plan', {})
+                            st.markdown(f"""
+                            <div class='metric-card'>
+                                <div class='metric-lbl'>🎥 VISUAL PLAN</div>
+                                <div style='margin-top:8px;font-size:0.78rem;color:#9ca3af;'>
+                                <div style='margin-bottom:6px;'><b style='color:#00e5a0;'>0-3s (Hook):</b> {vp.get('hook_visual','Show result/chart spike')}</div>
+                                <div style='margin-bottom:6px;'><b style='color:#0066ff;'>3-40s (Value):</b> {vp.get('value_visual','Screen recording/code walkthrough')}</div>
+                                <div><b style='color:#ffd700;'>40-55s (CTA):</b> {vp.get('cta_visual','Point to description/link overlay')}</div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            tags_html = ''.join([f"<span class='tag'>{t}</span>" for t in s.get('tags', [])])
+                            st.markdown(f"<div class='step-box' style='margin-top:0.75rem;'><div style='font-size:0.78rem;font-weight:600;margin-bottom:4px;'>📝 SEO DESCRIPTION</div><div style='font-size:0.75rem;color:#9ca3af;'>{s.get('description','')}</div><div style='margin-top:6px;'>{tags_html}</div></div>", unsafe_allow_html=True)
+                        
+                        col_dl, _ = st.columns([1, 3])
+                        with col_dl:
+                            st.download_button(f"⬇️ Download Short #{i}", s.get('script',''), file_name=f"short_{i}_{datetime.now().strftime('%Y%m%d')}.txt", key=f"dl_short_{i}")
+                    
+                    st.success("✅  3 Shorts extracted! Save them and record one per day to drive traffic back to your long video.")
+                else:
+                    st.error("AI returned invalid format. Try again.")
+            elif not long_script_input.strip():
+                st.info("👉 Paste your long script above to start extraction.")
+
 
 def page_history():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>📁 Video History</h1>",unsafe_allow_html=True)
@@ -1106,15 +1166,9 @@ def page_history():
         created=r.get('created_at','')[:10] if r.get('created_at') else ''
         with st.expander(f"{'✅' if real_ctr else '⏳'} {r.get('title','Untitled')} — {created}"):
             col1,col2,col3,col4=st.columns(4)
-            with col1: 
-                vs_emoji = '🟢' if vs_>=75 else '🟡'
-                st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{vs_emoji} {vs_}</div><div class='metric-lbl'>Virality</div></div>",unsafe_allow_html=True)
-            with col2: 
-                ts_emoji = '🟢' if ts_>=75 else '🟡'
-                st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{ts_emoji} {ts_}</div><div class='metric-lbl'>Title Score</div></div>",unsafe_allow_html=True)
-            with col3: 
-                hs_emoji = '🟢' if hs_>=75 else '🟡'
-                st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{hs_emoji} {hs_}</div><div class='metric-lbl'>Hook Score</div></div>",unsafe_allow_html=True)
+            with col1: st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{'🟢' if vs_>=75 else '🟡'} {vs_}</div><div class='metric-lbl'>Virality</div></div>",unsafe_allow_html=True)
+            with col2: st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{'🟢' if ts_>=75 else '🟡'} {ts_}</div><div class='metric-lbl'>Title Score</div></div>",unsafe_allow_html=True)
+            with col3: st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{'🟢' if hs_>=75 else '🟡'} {hs_}</div><div class='metric-lbl'>Hook Score</div></div>",unsafe_allow_html=True)
             with col4:
                 ctr_c_='#00e5a0' if real_ctr and real_ctr>=4 else '#ffd700' if real_ctr else '#6b7280'
                 st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;color:{ctr_c_};'>{f'{real_ctr}%' if real_ctr else '—'}</div><div class='metric-lbl'>Real CTR</div></div>",unsafe_allow_html=True)
@@ -1134,12 +1188,9 @@ def page_history():
                     st.rerun()
             if real_ctr and ts_:
                 gap=real_ctr - (ts_/100*10)
-                if gap > 1:
-                    step_box("📐 Calibration","Model score predicted well — CTR above expectation. Title formula is working.",'#00e5a0')
-                elif gap < -1:
-                    step_box("📐 Calibration","Model over-predicted CTR. Thumbnail may be the weak point — score was higher than real performance.",'#ff4560')
-                else:
-                    step_box("📐 Calibration","Model score aligned with real CTR. Calibration is accurate for this type of title.",'#ffd700')
+                if gap > 1: step_box("📐 Calibration","Model score predicted well — CTR above expectation. Title formula is working.",'#00e5a0')
+                elif gap < -1: step_box("📐 Calibration","Model over-predicted CTR. Thumbnail may be the weak point — score was higher than real performance.",'#ff4560')
+                else: step_box("📐 Calibration","Model score aligned with real CTR. Calibration is accurate for this type of title.",'#ffd700')
 
 
 def page_weekly_report():
@@ -1208,7 +1259,7 @@ def page_weekly_report():
         else:
             resend_key=st.secrets.get("RESEND_API_KEY","") if hasattr(st,'secrets') else ""
             if not resend_key:
-                st.info("RESEND_API_KEY not configured in Streamlit secrets. Add it to enable email sending. Get free key at resend.com")
+                st.info("RESEND_API_KEY not configured in Streamlit secrets. Add it to enable email sending.")
             else:
                 with st.spinner("Sending email..."):
                     ok=send_email_report(report,cfg.get('email',''))
@@ -1247,13 +1298,10 @@ def page_settings():
     st.code("""# Add these in Streamlit Cloud → Settings → Secrets
 GEMINI_API_KEY = "AIza..."
 YOUTUBE_API_KEY = "AIza..."
-# Optional — for Google OAuth login
 GOOGLE_CLIENT_ID = "..."
 GOOGLE_CLIENT_SECRET = "..."
 REDIRECT_URI = "https://yourapp.streamlit.app"
-# Optional — for email reports
 RESEND_API_KEY = "re_..."
-# Optional — for persistence
 SUPABASE_URL = "https://xxx.supabase.co"
 SUPABASE_KEY = "eyJ..."
 """, language="toml")
