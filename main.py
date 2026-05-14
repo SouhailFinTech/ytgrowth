@@ -1,9 +1,9 @@
 """
-AlgoQuant Studio v2.5 — Full Production SaaS
+AlgoQuant Studio v2.6 — Full Production SaaS
 FIXES: 
-- Fixed YouTube transcript extraction AttributeError (v0.5 vs v0.6+ API mismatch)
-- Added version-agnostic wrapper for youtube-transcript-api
-- Optimized model to gemini-2.0-flash (current stable)
+- Fixed "translation failed" by checking is_translatable before translating
+- Added robust iteration fallback for non-English videos
+- Updated model to gemini-2.0-flash (current stable)
 Single file. Deploy: streamlit run main.py
 """
 
@@ -580,12 +580,13 @@ Return ONLY valid JSON no markdown:
 
 
 # ════════════════════════════════════════════════════════════
-# YOUTUBE TRANSCRIPT (VERSION-AGNOSTIC FIX)
+# YOUTUBE TRANSCRIPT (BULLETPROOF FIX)
 # ════════════════════════════════════════════════════════════
 
 def extract_youtube_transcript(video_url: str):
     """
     Robust YouTube transcript extractor compatible with youtube-transcript-api v0.5 & v0.6+
+    Checks is_translatable before translating to avoid YouTube API failures.
     """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
@@ -601,42 +602,52 @@ def extract_youtube_transcript(video_url: str):
         if not video_id:
             return None, "Could not extract video ID from URL"
 
-        # v0.6+ requires instantiation, v0.5 uses static methods
+        # Initialize API (handles v0.5 vs v0.6+ differences)
         try:
             api = YouTubeTranscriptApi()
             transcript_list = api.list_transcripts(video_id)
         except (AttributeError, TypeError):
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             
+        # Strategy 1: Try to fetch English directly
         try:
             transcript = transcript_list.find_transcript(['en', 'en-US'])
             data = transcript.fetch()
+            full_text = " ".join([entry['text'] for entry in data])
+            full_text = re.sub(r'\s+', ' ', full_text).strip()
+            if len(full_text) >= 50:
+                video_title = "YouTube Video"
+                try:
+                    oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+                    resp = requests.get(oembed_url, timeout=5)
+                    if resp.status_code == 200:
+                        video_title = resp.json().get('title', 'YouTube Video')
+                except: pass
+                return full_text, video_title
         except Exception:
-            first_transcript = next(iter(transcript_list), None)
-            if not first_transcript:
-                return None, "No captions available for this video."
-            try:
-                translated = first_transcript.translate('en')
-                data = translated.fetch()
-            except Exception:
-                return None, "Found captions but translation failed."
-
-        full_text = " ".join([entry['text'] for entry in data])
-        full_text = re.sub(r'\s+', ' ', full_text).strip()
-
-        if len(full_text) < 50:
-            return None, "Transcript too short or empty."
-
-        video_title = "YouTube Video"
-        try:
-            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
-            resp = requests.get(oembed_url, timeout=5)
-            if resp.status_code == 200:
-                video_title = resp.json().get('title', 'YouTube Video')
-        except:
             pass
 
-        return full_text, video_title
+        # Strategy 2: Find ANY translatable caption and translate to English
+        for transcript in transcript_list:
+            if hasattr(transcript, 'is_translatable') and transcript.is_translatable:
+                try:
+                    translated = transcript.translate('en')
+                    data = translated.fetch()
+                    full_text = " ".join([entry['text'] for entry in data])
+                    full_text = re.sub(r'\s+', ' ', full_text).strip()
+                    if len(full_text) >= 50:
+                        video_title = "YouTube Video"
+                        try:
+                            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+                            resp = requests.get(oembed_url, timeout=5)
+                            if resp.status_code == 200:
+                                video_title = resp.json().get('title', 'YouTube Video')
+                        except: pass
+                        return full_text, video_title
+                except Exception:
+                    continue
+        
+        return None, "Captions exist but YouTube restricts translation for this video."
 
     except Exception as e:
         return None, f"Error: {str(e)}"
@@ -935,6 +946,7 @@ def page_factory():
                         st.divider()
                 else:
                     st.error(f"❌ {title_or_error}")
+                    st.info("💡 Fallback: Use the 📝 Paste Script tab or try a different video with enabled captions.")
         
         with extract_mode[1]:
             long_script_input = st.text_area("Paste Script", height=200)
