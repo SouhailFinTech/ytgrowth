@@ -1,11 +1,11 @@
 """
-AlgoQuant Studio v2.2 — Full Production SaaS
+AlgoQuant Studio v2.3 — Full Production SaaS
 Features: 
 - Persistence (Supabase) + Auth (Google OAuth) + Auto Reports + Thumbnail Generator
 - SHORT FIX: Format-aware script generation
 - NEW FEATURE: Long Script → 3 Shorts Extractor with Visual Plans
-- NEW FEATURE: YouTube URL → Auto Transcript Extraction → 3 Shorts
-Single file. Deploy: streamlit run algoquant_studio_v2.py
+- NEW FEATURE: YouTube URL → Auto Transcript Extraction → 3 Shorts (with translation fallback)
+Single file. Deploy: streamlit run main.py
 """
 
 import json, re, time, os, io, base64, textwrap, requests
@@ -588,13 +588,13 @@ Return ONLY valid JSON no markdown:
 
 def extract_youtube_transcript(video_url: str):
     """
-    Extract transcript from YouTube video URL.
-    Returns: (transcript_text, video_title) or (None, error_message)
+    Robust YouTube transcript extractor with translation fallback.
+    Tries: English manual → English auto-generated → Any language → Translate to English
     """
     try:
-        from youtube_transcript_api import YouTubeTranscriptApi
-        
-        # Extract video ID from URL
+        from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+
+        # Extract video ID
         video_id = None
         if "youtube.com/watch?v=" in video_url:
             video_id = video_url.split("v=")[-1].split("&")[0]
@@ -602,27 +602,35 @@ def extract_youtube_transcript(video_url: str):
             video_id = video_url.split("youtu.be/")[-1].split("?")[0]
         elif "youtube.com/shorts/" in video_url:
             video_id = video_url.split("/shorts/")[-1].split("?")[0]
-        
+
         if not video_id:
             return None, "Could not extract video ID from URL"
-        
-        # Try to get transcript (English first, then auto-generated)
+
+        # Step 1: Try English (manual or auto-generated)
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-        except:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US'])
+        except (NoTranscriptFound, TranscriptsDisabled):
+            # Step 2: List available languages and try to translate to English
+            transcript_obj = YouTubeTranscriptApi.list_transcripts(video_id)
+            first_transcript = next(iter(transcript_obj), None)
+            
+            if not first_transcript:
+                return None, "Captions are disabled or unavailable for this video."
+            
             try:
-                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en-US'])
-            except:
-                return None, "No English transcript available for this video"
-        
-        # Combine transcript text
+                # Translate to English
+                transcript_list = first_transcript.translate('en').fetch()
+            except Exception:
+                return None, "Found captions but translation to English failed."
+
+        # Clean & combine text
         full_text = " ".join([entry['text'] for entry in transcript_list])
-        
-        # Clean up text (remove timestamps, extra spaces)
-        full_text = re.sub(r'\[\d{2}:\d{2}\]', '', full_text)
         full_text = re.sub(r'\s+', ' ', full_text).strip()
-        
-        # Get video title (optional, from oEmbed API)
+
+        if len(full_text) < 50:
+            return None, "Transcript too short or empty. Try a video with spoken audio."
+
+        # Get video title
         video_title = "YouTube Video"
         try:
             oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
@@ -631,26 +639,20 @@ def extract_youtube_transcript(video_url: str):
                 video_title = resp.json().get('title', 'YouTube Video')
         except:
             pass
-        
+
         return full_text, video_title
-        
+
     except Exception as e:
-        return None, f"Error extracting transcript: {str(e)}"
+        return None, f"Error: {str(e)}"
 
 
 def ai_extract_shorts_from_youtube_url(model, youtube_url, ctx, funnel='ea'):
-    """
-    Complete pipeline: YouTube URL → Transcript → 3 Shorts
-    """
+    """Complete pipeline: YouTube URL → Transcript → 3 Shorts"""
     transcript, title_or_error = extract_youtube_transcript(youtube_url)
-    
     if not transcript:
         return None, title_or_error  # Error case
-    
-    # Use existing extraction function
     result = ai_extract_shorts_from_long(model, transcript, ctx, funnel)
-    
-    return result, title_or_error  # Success case (result, video_title)
+    return result, title_or_error  # Success case
 
 
 # ════════════════════════════════════════════════════════════
@@ -917,7 +919,6 @@ def page_factory():
         st.warning("⚠️  Add your Gemini API key in Settings.")
         return
     
-    # ✅ UPDATED: Added 5th tab for Long → Shorts Extractor
     tab1,tab2,tab3,tab4,tab5=st.tabs(["🏭  Full Factory","💡  Auto Suggest","📊  Title Scorer","🖼️  Thumbnail Generator", "📐  Long → Shorts"])
 
     # ── FULL FACTORY ──
@@ -1004,7 +1005,7 @@ def page_factory():
             cta=pk.get('cta_script','')
             rec=th_data.get('recommended','1')
             
-            # ✅ FIXED: Thumbnail options rendering (no nested f-strings)
+            # ✅ FIXED: Thumbnail options rendering
             tc1, tc2 = st.columns(2)
             for col, key in zip([tc1, tc2], ['option_1', 'option_2']):
                 with col:
@@ -1167,10 +1168,8 @@ def page_factory():
     with tab5:
         section("📐 Long Script → 3 Shorts Extractor")
         
-        # Tab for URL vs Manual paste
         extract_mode = st.tabs(["🔗 YouTube URL", "📝 Paste Script"])
         
-        # ── MODE 1: YOUTUBE URL ──
         with extract_mode[0]:
             st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Paste any YouTube video URL. We'll extract the transcript and generate 3 Shorts automatically.</div>", unsafe_allow_html=True)
             
@@ -1200,7 +1199,6 @@ def page_factory():
                     st.success(f"✅ Extracted from: **{title_or_error}**")
                     st.markdown(f"<div style='background:rgba(0,229,160,0.1);border:1px solid rgba(0,229,160,0.3);border-radius:8px;padding:1rem;margin:1rem 0;'><div style='font-size:0.85rem;color:#00e5a0;'>📹 Source: {title_or_error}</div><div style='font-size:0.75rem;color:#6b7280;'>Generated {len(result['shorts'])} Shorts from this video</div></div>", unsafe_allow_html=True)
                     
-                    # Display all shorts
                     for i, s in enumerate(result['shorts'], 1):
                         st.markdown(f"<hr class='divider'>", unsafe_allow_html=True)
                         st.markdown(f"<div style='font-size:1rem;font-weight:700;color:#00e5a0;margin-bottom:0.5rem;'>🎬 SHORT #{i}: {s.get('title','')} <span class='score-badge score-green' style='margin-left:8px;'>{s.get('title_score',0)}/100</span></div>", unsafe_allow_html=True)
@@ -1231,7 +1229,6 @@ def page_factory():
                     
                     st.success("✅  3 Shorts extracted! Save them and record one per day to drive traffic back to your long video.")
                     
-                    # Save to history
                     db_save('video_history',{
                         'user_id':user_id,
                         'idea':f"Extracted from YouTube: {title_or_error}",
@@ -1256,7 +1253,6 @@ def page_factory():
             elif extract_btn and not youtube_url.strip():
                 st.warning("⚠️ Please enter a YouTube URL")
             
-            # Info box
             st.markdown("""
             <div style='background:#111318;border:1px solid #1e2229;border-radius:8px;padding:1rem;margin-top:1.5rem;'>
                 <div style='font-size:0.85rem;font-weight:600;color:#00e5a0;margin-bottom:0.5rem;'>ℹ️ How it works</div>
@@ -1269,7 +1265,6 @@ def page_factory():
             </div>
             """, unsafe_allow_html=True)
         
-        # ── MODE 2: MANUAL PASTE ──
         with extract_mode[1]:
             section("📐 Long Script → 3 Shorts Extractor")
             st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Paste your long-form script below. AI will extract 3 distinct, high-retention Shorts with titles, hooks, scripts, SEO descriptions, and frame-by-frame visual plans.</div>", unsafe_allow_html=True)
