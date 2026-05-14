@@ -1,8 +1,10 @@
 """
-AlgoQuant Studio v2.1 — Full Production SaaS
-Levels: Persistence (Supabase) + Auth (Google OAuth) + Auto Reports + Thumbnail Generator
-+ SHORT FIX: Format-aware script generation
-+ NEW FEATURE: Long Script → 3 Shorts Extractor with Visual Plans
+AlgoQuant Studio v2.2 — Full Production SaaS
+Features: 
+- Persistence (Supabase) + Auth (Google OAuth) + Auto Reports + Thumbnail Generator
+- SHORT FIX: Format-aware script generation
+- NEW FEATURE: Long Script → 3 Shorts Extractor with Visual Plans
+- NEW FEATURE: YouTube URL → Auto Transcript Extraction → 3 Shorts
 Single file. Deploy: streamlit run algoquant_studio_v2.py
 """
 
@@ -584,6 +586,73 @@ Return ONLY valid JSON no markdown:
 """, 3500)
 
 
+def extract_youtube_transcript(video_url: str):
+    """
+    Extract transcript from YouTube video URL.
+    Returns: (transcript_text, video_title) or (None, error_message)
+    """
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        
+        # Extract video ID from URL
+        video_id = None
+        if "youtube.com/watch?v=" in video_url:
+            video_id = video_url.split("v=")[-1].split("&")[0]
+        elif "youtu.be/" in video_url:
+            video_id = video_url.split("youtu.be/")[-1].split("?")[0]
+        elif "youtube.com/shorts/" in video_url:
+            video_id = video_url.split("/shorts/")[-1].split("?")[0]
+        
+        if not video_id:
+            return None, "Could not extract video ID from URL"
+        
+        # Try to get transcript (English first, then auto-generated)
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        except:
+            try:
+                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en-US'])
+            except:
+                return None, "No English transcript available for this video"
+        
+        # Combine transcript text
+        full_text = " ".join([entry['text'] for entry in transcript_list])
+        
+        # Clean up text (remove timestamps, extra spaces)
+        full_text = re.sub(r'\[\d{2}:\d{2}\]', '', full_text)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+        
+        # Get video title (optional, from oEmbed API)
+        video_title = "YouTube Video"
+        try:
+            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+            resp = requests.get(oembed_url, timeout=5)
+            if resp.status_code == 200:
+                video_title = resp.json().get('title', 'YouTube Video')
+        except:
+            pass
+        
+        return full_text, video_title
+        
+    except Exception as e:
+        return None, f"Error extracting transcript: {str(e)}"
+
+
+def ai_extract_shorts_from_youtube_url(model, youtube_url, ctx, funnel='ea'):
+    """
+    Complete pipeline: YouTube URL → Transcript → 3 Shorts
+    """
+    transcript, title_or_error = extract_youtube_transcript(youtube_url)
+    
+    if not transcript:
+        return None, title_or_error  # Error case
+    
+    # Use existing extraction function
+    result = ai_extract_shorts_from_long(model, transcript, ctx, funnel)
+    
+    return result, title_or_error  # Success case (result, video_title)
+
+
 # ════════════════════════════════════════════════════════════
 # AUTOMATED REPORT & EMAIL
 # ════════════════════════════════════════════════════════════
@@ -1094,26 +1163,44 @@ def page_factory():
                 else:
                     st.error("Image generation failed. Try the design brief instead and build in Canva manually.")
 
-    # ── 📐 LONG → SHORTS EXTRACTOR (NEW) ──
+    # ──  LONG → SHORTS EXTRACTOR (ENHANCED WITH YOUTUBE URL) ──
     with tab5:
         section("📐 Long Script → 3 Shorts Extractor")
-        st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Paste your long-form script below. AI will extract 3 distinct, high-retention Shorts with titles, hooks, scripts, SEO descriptions, and frame-by-frame visual plans.</div>", unsafe_allow_html=True)
         
-        long_script_input = st.text_area("Paste Full Long Video Script", height=250, placeholder="Paste your complete 10-20 minute script here...")
-        col_f, col_b = st.columns([1, 3])
-        with col_f: ext_funnel = st.selectbox("Target Funnel", list(FUNNEL_DESCRIPTIONS.keys()), key="ext_funnel")
-        with col_b: 
-            if st.button("⚡  Extract 3 Shorts", use_container_width=True) and long_script_input.strip():
+        # Tab for URL vs Manual paste
+        extract_mode = st.tabs(["🔗 YouTube URL", "📝 Paste Script"])
+        
+        # ── MODE 1: YOUTUBE URL ──
+        with extract_mode[0]:
+            st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Paste any YouTube video URL. We'll extract the transcript and generate 3 Shorts automatically.</div>", unsafe_allow_html=True)
+            
+            youtube_url = st.text_input("YouTube Video URL", 
+                placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/...",
+                key="yt_url_input")
+            
+            col_f, col_b = st.columns([1, 3])
+            with col_f: 
+                url_funnel = st.selectbox("Target Funnel", list(FUNNEL_DESCRIPTIONS.keys()), key="url_funnel")
+            with col_b: 
+                extract_btn = st.button("⚡  Extract from YouTube", use_container_width=True)
+            
+            if extract_btn and youtube_url.strip():
                 model = get_model()
                 ctx = build_context()
-                with st.spinner("Analyzing script & extracting Shorts..."):
+                
+                with st.spinner("🔍 Fetching video transcript..."):
                     try:
-                        result = ai_extract_shorts_from_long(model, long_script_input, ctx, ext_funnel)
+                        result, title_or_error = ai_extract_shorts_from_youtube_url(model, youtube_url, ctx, url_funnel)
                     except Exception as e:
                         st.error(f"Extraction failed: {e}")
-                        return
+                        result = None
+                        title_or_error = str(e)
                 
-                if 'shorts' in result:
+                if result and 'shorts' in result:
+                    st.success(f"✅ Extracted from: **{title_or_error}**")
+                    st.markdown(f"<div style='background:rgba(0,229,160,0.1);border:1px solid rgba(0,229,160,0.3);border-radius:8px;padding:1rem;margin:1rem 0;'><div style='font-size:0.85rem;color:#00e5a0;'>📹 Source: {title_or_error}</div><div style='font-size:0.75rem;color:#6b7280;'>Generated {len(result['shorts'])} Shorts from this video</div></div>", unsafe_allow_html=True)
+                    
+                    # Display all shorts
                     for i, s in enumerate(result['shorts'], 1):
                         st.markdown(f"<hr class='divider'>", unsafe_allow_html=True)
                         st.markdown(f"<div style='font-size:1rem;font-weight:700;color:#00e5a0;margin-bottom:0.5rem;'>🎬 SHORT #{i}: {s.get('title','')} <span class='score-badge score-green' style='margin-left:8px;'>{s.get('title_score',0)}/100</span></div>", unsafe_allow_html=True)
@@ -1140,13 +1227,101 @@ def page_factory():
                         
                         col_dl, _ = st.columns([1, 3])
                         with col_dl:
-                            st.download_button(f"⬇️ Download Short #{i}", s.get('script',''), file_name=f"short_{i}_{datetime.now().strftime('%Y%m%d')}.txt", key=f"dl_short_{i}")
+                            st.download_button(f"⬇️ Download Short #{i}", s.get('script',''), file_name=f"short_{i}_{datetime.now().strftime('%Y%m%d')}.txt", key=f"dl_short_url_{i}")
                     
                     st.success("✅  3 Shorts extracted! Save them and record one per day to drive traffic back to your long video.")
+                    
+                    # Save to history
+                    db_save('video_history',{
+                        'user_id':user_id,
+                        'idea':f"Extracted from YouTube: {title_or_error}",
+                        'format':'short',
+                        'funnel':url_funnel,
+                        'title':f"YouTube Extract: {title_or_error}",
+                        'title_score':result['shorts'][0].get('title_score', 0),
+                        'hook_score':85,
+                        'virality_score':85,
+                        'word_count':sum([len(s.get('script','').split()) for s in result['shorts']]),
+                        'script':json.dumps(result['shorts']),
+                        'tags':'[]',
+                        'status':'extracted_from_youtube',
+                        'real_ctr':None,
+                        'real_retention':None
+                    }, user_id)
+                    
                 else:
-                    st.error("AI returned invalid format. Try again.")
-            elif not long_script_input.strip():
-                st.info("👉 Paste your long script above to start extraction.")
+                    st.error(f"❌ Failed to extract: {title_or_error}")
+                    st.info("💡 Make sure the video has English captions/transcript enabled.")
+            
+            elif extract_btn and not youtube_url.strip():
+                st.warning("⚠️ Please enter a YouTube URL")
+            
+            # Info box
+            st.markdown("""
+            <div style='background:#111318;border:1px solid #1e2229;border-radius:8px;padding:1rem;margin-top:1.5rem;'>
+                <div style='font-size:0.85rem;font-weight:600;color:#00e5a0;margin-bottom:0.5rem;'>ℹ️ How it works</div>
+                <div style='font-size:0.75rem;color:#9ca3af;line-height:1.6;'>
+                1. Extracts transcript from YouTube (auto-generated or manual captions)<br>
+                2. Analyzes content for 3 distinct Shorts opportunities<br>
+                3. Generates hooks, scripts, visual plans, and SEO<br>
+                4. Saves to your History for tracking
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # ── MODE 2: MANUAL PASTE ──
+        with extract_mode[1]:
+            section("📐 Long Script → 3 Shorts Extractor")
+            st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Paste your long-form script below. AI will extract 3 distinct, high-retention Shorts with titles, hooks, scripts, SEO descriptions, and frame-by-frame visual plans.</div>", unsafe_allow_html=True)
+            
+            long_script_input = st.text_area("Paste Full Long Video Script", height=250, placeholder="Paste your complete 10-20 minute script here...")
+            col_f, col_b = st.columns([1, 3])
+            with col_f: ext_funnel = st.selectbox("Target Funnel", list(FUNNEL_DESCRIPTIONS.keys()), key="ext_funnel")
+            with col_b: 
+                if st.button("⚡  Extract 3 Shorts", use_container_width=True) and long_script_input.strip():
+                    model = get_model()
+                    ctx = build_context()
+                    with st.spinner("Analyzing script & extracting Shorts..."):
+                        try:
+                            result = ai_extract_shorts_from_long(model, long_script_input, ctx, ext_funnel)
+                        except Exception as e:
+                            st.error(f"Extraction failed: {e}")
+                            return
+                    
+                    if 'shorts' in result:
+                        for i, s in enumerate(result['shorts'], 1):
+                            st.markdown(f"<hr class='divider'>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='font-size:1rem;font-weight:700;color:#00e5a0;margin-bottom:0.5rem;'>🎬 SHORT #{i}: {s.get('title','')} <span class='score-badge score-green' style='margin-left:8px;'>{s.get('title_score',0)}/100</span></div>", unsafe_allow_html=True)
+                            
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown(f"<div class='metric-card'><div class='metric-lbl'>HOOK (0-3s)</div><div style='font-size:0.85rem;color:#c9d1d9;line-height:1.5;font-family:\"JetBrains Mono\",monospace;margin-top:4px;'>{s.get('hook','')}</div></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div class='metric-card' style='margin-top:0.75rem;'><div class='metric-lbl'>FULL SCRIPT (100-130 words)</div><div style='font-size:0.8rem;color:#c9d1d9;line-height:1.7;font-family:\"JetBrains Mono\",monospace;margin-top:4px;max-height:200px;overflow-y:auto;'>{s.get('script','')}</div></div>", unsafe_allow_html=True)
+                            with c2:
+                                vp = s.get('visual_plan', {})
+                                st.markdown(f"""
+                                <div class='metric-card'>
+                                    <div class='metric-lbl'>🎥 VISUAL PLAN</div>
+                                    <div style='margin-top:8px;font-size:0.78rem;color:#9ca3af;'>
+                                    <div style='margin-bottom:6px;'><b style='color:#00e5a0;'>0-3s (Hook):</b> {vp.get('hook_visual','Show result/chart spike')}</div>
+                                    <div style='margin-bottom:6px;'><b style='color:#0066ff;'>3-40s (Value):</b> {vp.get('value_visual','Screen recording/code walkthrough')}</div>
+                                    <div><b style='color:#ffd700;'>40-55s (CTA):</b> {vp.get('cta_visual','Point to description/link overlay')}</div>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                tags_html = ''.join([f"<span class='tag'>{t}</span>" for t in s.get('tags', [])])
+                                st.markdown(f"<div class='step-box' style='margin-top:0.75rem;'><div style='font-size:0.78rem;font-weight:600;margin-bottom:4px;'>📝 SEO DESCRIPTION</div><div style='font-size:0.75rem;color:#9ca3af;'>{s.get('description','')}</div><div style='margin-top:6px;'>{tags_html}</div></div>", unsafe_allow_html=True)
+                            
+                            col_dl, _ = st.columns([1, 3])
+                            with col_dl:
+                                st.download_button(f"⬇️ Download Short #{i}", s.get('script',''), file_name=f"short_{i}_{datetime.now().strftime('%Y%m%d')}.txt", key=f"dl_short_{i}")
+                        
+                        st.success("✅  3 Shorts extracted! Save them and record one per day to drive traffic back to your long video.")
+                    else:
+                        st.error("AI returned invalid format. Try again.")
+                elif not long_script_input.strip():
+                    st.info("👉 Paste your long script above to start extraction.")
 
 
 def page_history():
