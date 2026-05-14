@@ -1,8 +1,9 @@
 """
-AlgoQuant Studio v2.4 — Full Production SaaS
+AlgoQuant Studio v2.5 — Full Production SaaS
 FIXES: 
-- Fixed YouTube transcript extraction AttributeError (Library v0.6+ compatibility)
-- Restored robust translation fallback
+- Fixed YouTube transcript extraction AttributeError (v0.5 vs v0.6+ API mismatch)
+- Added version-agnostic wrapper for youtube-transcript-api
+- Optimized model to gemini-2.0-flash (current stable)
 Single file. Deploy: streamlit run main.py
 """
 
@@ -303,7 +304,7 @@ def get_model():
     if not key:
         return None
     genai.configure(api_key=key)
-    return genai.GenerativeModel('gemini-2.0-flash') # Updated to current stable model
+    return genai.GenerativeModel('gemini-2.0-flash')
 
 
 def call_gemini(model, prompt, max_tokens=2000):
@@ -579,16 +580,16 @@ Return ONLY valid JSON no markdown:
 
 
 # ════════════════════════════════════════════════════════════
-# YOUTUBE TRANSCRIPT (FIXED)
+# YOUTUBE TRANSCRIPT (VERSION-AGNOSTIC FIX)
 # ════════════════════════════════════════════════════════════
 
 def extract_youtube_transcript(video_url: str):
     """
-    Robust YouTube transcript extractor using Object-Oriented API (v0.6+ compatible).
+    Robust YouTube transcript extractor compatible with youtube-transcript-api v0.5 & v0.6+
     """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-
+        
         video_id = None
         if "youtube.com/watch?v=" in video_url:
             video_id = video_url.split("v=")[-1].split("&")[0]
@@ -600,19 +601,20 @@ def extract_youtube_transcript(video_url: str):
         if not video_id:
             return None, "Could not extract video ID from URL"
 
-        # Get list of all transcripts
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        
+        # v0.6+ requires instantiation, v0.5 uses static methods
         try:
-            # Step 1: Try to find English
+            api = YouTubeTranscriptApi()
+            transcript_list = api.list_transcripts(video_id)
+        except (AttributeError, TypeError):
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+        try:
             transcript = transcript_list.find_transcript(['en', 'en-US'])
             data = transcript.fetch()
         except Exception:
-            # Step 2: If no English, take the first available and translate to English
             first_transcript = next(iter(transcript_list), None)
             if not first_transcript:
                 return None, "No captions available for this video."
-            
             try:
                 translated = first_transcript.translate('en')
                 data = translated.fetch()
@@ -623,7 +625,7 @@ def extract_youtube_transcript(video_url: str):
         full_text = re.sub(r'\s+', ' ', full_text).strip()
 
         if len(full_text) < 50:
-            return None, "Transcript too short."
+            return None, "Transcript too short or empty."
 
         video_title = "YouTube Video"
         try:
@@ -972,5 +974,3 @@ elif "🏭" in page:  page_factory()
 elif "📁" in page:  page_history()
 elif "📧" in page:  page_weekly_report()
 elif "⚙️" in page:  page_settings()
-
-
