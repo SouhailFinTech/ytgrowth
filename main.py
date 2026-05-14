@@ -3,7 +3,7 @@ AlgoQuant Studio v2 — Full Production SaaS
 Levels: Persistence (Supabase) + Auth (Google OAuth) + Auto Reports + Thumbnail Generator
 Single file. Deploy: streamlit run algoquant_studio_v2.py
 
-FIXED: SyntaxError in thumbnail rendering section (line ~998)
+FIXED: All SyntaxError issues with nested f-strings and escaped quotes
 """
 
 import json, re, time, os, io, base64, textwrap, requests
@@ -33,7 +33,6 @@ def get_supabase():
 def db_save(table: str, data: dict, user_id: str = None):
     sb = get_supabase()
     if not sb:
-        # Fallback: session state
         if table not in st.session_state:
             st.session_state[table] = []
         if isinstance(st.session_state[table], list):
@@ -142,8 +141,6 @@ def login_page():
     """, unsafe_allow_html=True)
 
     auth_url = get_google_auth_url()
-
-    # Check for OAuth callback code
     params = st.query_params
     if "code" in params:
         with st.spinner("Signing you in..."):
@@ -158,7 +155,6 @@ def login_page():
                         'picture'      : user_info.get('picture', ''),
                         'access_token' : token_data.get('access_token', ''),
                     }
-                    # Load user config from DB
                     rows = db_fetch('user_configs', get_user_id(), 1)
                     if rows:
                         st.session_state['config'] = rows[0].get('config_json', {})
@@ -174,7 +170,6 @@ def login_page():
         '>🔐 Sign in with Google</a>
         """, unsafe_allow_html=True)
     else:
-        # No OAuth configured — allow demo login
         if st.button("🚀  Continue as Demo User", use_container_width=True):
             st.session_state['user'] = {
                 'id': 'demo', 'email': 'demo@algoquant.studio',
@@ -204,7 +199,6 @@ def init_session():
             'youtube_api_key': '',
             'email'          : '',
         }
-    # Auto-fill from Streamlit secrets
     try:
         if hasattr(st, 'secrets'):
             cfg = st.session_state['config']
@@ -277,15 +271,12 @@ h1,h2,h3,h4{font-family:'Space Grotesk',sans-serif!important;color:var(--text)!i
 # ════════════════════════════════════════════════════════════
 
 init_session()
-
-# Check if OAuth is configured
 has_oauth = bool(st.secrets.get("GOOGLE_CLIENT_ID", "")) if hasattr(st, 'secrets') else False
 
 if has_oauth and not is_logged_in():
     login_page()
     st.stop()
 elif not is_logged_in():
-    # No OAuth — auto-login as demo
     st.session_state['user'] = {
         'id': 'demo', 'email': '', 'name': 'Creator', 'picture': '', 'access_token': ''
     }
@@ -550,7 +541,6 @@ Return ONLY valid JSON no markdown:
 """,3000)
 
 
-# Level 4 — Thumbnail Generator
 def ai_thumbnail_prompt(model, title, key_result, style='dark'):
     result = call_gemini(model, f"""
 You are a thumbnail designer for algorithmic trading YouTube.
@@ -569,7 +559,6 @@ Return ONLY valid JSON no markdown:
 
 
 def generate_thumbnail_image(prompt_text):
-    """Use Pollinations AI — free, no API key needed."""
     try:
         encoded = requests.utils.quote(prompt_text[:500])
         url = f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&nologo=true"
@@ -586,18 +575,14 @@ def generate_thumbnail_image(prompt_text):
 # ════════════════════════════════════════════════════════════
 
 def generate_weekly_report(model, competitor_data, channel_config):
-    """Generate a full Monday morning report."""
     trending = competitor_data.get('trending', [])
     ctx = build_context()
-
     tt = '\n'.join([f"- {v['title']} ({v.get('views_per_day',0):,.0f}/day)" for v in trending[:5]])
-
     report = call_gemini(model, f"""
 YouTube content strategist for algorithmic trading.
 {ctx}
 Trending this week:\n{tt}
 Channel stats: {channel_config.get('subscribers',5)} subs, {channel_config.get('avg_ctr',2.5)}% CTR, {channel_config.get('watch_hours',1.4)}h watch time.
-
 Generate a complete Monday morning content report.
 Return ONLY valid JSON no markdown:
 {{"report_date":"{datetime.now().strftime('%Y-%m-%d')}","weekly_summary":"2 sentences on channel status","top_3_video_ideas":[{{"rank":1,"title":"","hook":"","why_this_week":"","funnel":"ea","estimated_virality":85}},{{"rank":2,"title":"","hook":"","why_this_week":"","funnel":"saas","estimated_virality":80}},{{"rank":3,"title":"","hook":"","why_this_week":"","funnel":"course","estimated_virality":78}}],"this_week_priorities":["priority 1","priority 2","priority 3","priority 4"],"thumbnail_fix":"which existing thumbnail to fix and why","ctr_diagnosis":"current CTR analysis and fix","retention_diagnosis":"current retention analysis and fix"}}
@@ -606,12 +591,10 @@ Return ONLY valid JSON no markdown:
 
 
 def send_email_report(report_data, email):
-    """Send report via Resend API."""
     try:
         resend_key = st.secrets.get("RESEND_API_KEY", "")
         if not resend_key or not email:
             return False
-
         html = f"""
         <div style='font-family:sans-serif;max-width:600px;margin:0 auto;background:#111318;color:#e8eaf0;padding:2rem;border-radius:12px;'>
             <h1 style='color:#00e5a0;'>⚡ AlgoQuant Weekly Report</h1>
@@ -630,7 +613,6 @@ def send_email_report(report_data, email):
             <p style='color:#6b7280;font-size:0.75rem;'>AlgoQuant Studio · Unsubscribe in Settings</p>
         </div>
         """
-
         resp = requests.post("https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
             json={"from": "AlgoQuant Studio <report@algoquant.studio>",
@@ -699,7 +681,6 @@ sp    = min(subs/1000*100,100)
 hp    = min(hours/4000*100,100)
 
 with st.sidebar:
-    # User avatar
     pic = user.get('picture','')
     name= user.get('name','Creator')
     if pic:
@@ -731,11 +712,9 @@ with st.sidebar:
 # PAGES
 # ════════════════════════════════════════════════════════════
 
-# ── DASHBOARD ────────────────────────────────────────────────
 def page_dashboard():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>Good morning, Creator ⚡</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>Your content intelligence dashboard.</p>", unsafe_allow_html=True)
-
     section("Monetization Progress")
     c1,c2,c3,c4 = st.columns(4)
     items = [(str(subs),"Subscribers",f"{sp:.1f}% of 1,000",'#00e5a0'),
@@ -745,7 +724,6 @@ def page_dashboard():
     for col,(val,lbl,sub,col_) in zip([c1,c2,c3,c4],items):
         with col:
             st.markdown(f"<div class='metric-card'><div class='metric-val' style='color:{col_};'>{val}</div><div class='metric-lbl'>{lbl}</div><div style='font-size:0.7rem;color:#6b7280;margin-top:6px;'>{sub}</div></div>", unsafe_allow_html=True)
-
     st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
     left,right = st.columns([3,2])
     with left:
@@ -762,7 +740,6 @@ def page_dashboard():
     with right:
         section("Your Videos")
         for v in DEFAULT_VIDEOS: video_card_html(v)
-
     st.markdown("<div style='margin:1.5rem 0;'></div>", unsafe_allow_html=True)
     section("Monday Morning Routine (30 min)")
     steps=[("1","Competitor Intel","Run Phase 1 — see what is trending"),("2","Update Analytics","Paste stats into My Channel"),("3","Auto Suggest","Get 3 video ideas from trends"),("4","Video Factory","Generate full package for best idea"),("5","Record & Post","OBS + Chatterbox + Shotcut + Upload")]
@@ -772,24 +749,19 @@ def page_dashboard():
             st.markdown(f"<div style='background:#111318;border:1px solid #1e2229;border-radius:12px;padding:1rem;text-align:center;'><div style='width:28px;height:28px;background:rgba(0,229,160,0.15);border:1px solid #00e5a0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 8px;font-size:0.75rem;font-weight:700;color:#00e5a0;'>{num}</div><div style='font-size:0.78rem;font-weight:600;margin-bottom:4px;'>{t}</div><div style='font-size:0.68rem;color:#6b7280;line-height:1.4;'>{d}</div></div>", unsafe_allow_html=True)
 
 
-# ── COMPETITOR INTEL ─────────────────────────────────────────
 def page_competitor():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>🔍 Competitor Intelligence</h1>", unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>Track what works in your niche. Run every Monday.</p>", unsafe_allow_html=True)
-
     yt_key = cfg.get('youtube_api_key','')
     with st.expander("⚙️  Channel list",expanded=False):
         channels_text=st.text_area("Channels (Name,ID per line)",value='\n'.join([f"{k},{v}" for k,v in DEFAULT_CHANNELS.items()]),height=100)
         vids_n=st.slider("Videos per channel",5,50,20)
-
     col_btn,col_info=st.columns([1,3])
     with col_btn: run_btn=st.button("🔍  Fetch Competitor Data",use_container_width=True)
     with col_info: st.markdown("<div style='padding-top:0.5rem;font-size:0.8rem;color:#6b7280;'>Public data only. ~30 seconds.</div>",unsafe_allow_html=True)
-
     if 'competitor_data' in st.session_state and not run_btn:
         _show_competitor_results(st.session_state['competitor_data'])
         return
-
     if run_btn:
         if not yt_key: st.error("⚠️  Add YouTube API key in Settings."); return
         channels={}
@@ -802,7 +774,6 @@ def page_competitor():
                 results=analyze_patterns(videos)
                 st.session_state['competitor_data']=results
                 st.session_state['competitor_trending']=results.get('trending',[])
-                # Save to DB
                 db_save('competitor_reports',{'user_id':user_id,'data':json.dumps(results),'channel_count':len(channels)},user_id)
                 st.success(f"✅  {results['total']} videos from {len(channels)} channels — saved to history")
                 _show_competitor_results(results)
@@ -838,11 +809,9 @@ def _show_competitor_results(results):
         st.dataframe(df,use_container_width=True,hide_index=True)
 
 
-# ── MY CHANNEL ───────────────────────────────────────────────
 def page_analytics():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>📊 My Channel Analytics</h1>",unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>Update every Monday from YouTube Studio.</p>",unsafe_allow_html=True)
-
     section("Update Channel Stats")
     with st.form("channel_stats"):
         c1,c2,c3,c4=st.columns(4)
@@ -852,10 +821,8 @@ def page_analytics():
         with c4: new_v=st.number_input("Total Videos",min_value=0,value=cfg.get('total_videos',4))
         if st.form_submit_button("💾  Save Stats",use_container_width=True):
             st.session_state['config'].update({'subscribers':new_s,'watch_hours':new_h,'avg_ctr':new_c,'total_videos':new_v})
-            # Save to DB
             db_save('channel_snapshots',{'subscribers':new_s,'watch_hours':new_h,'avg_ctr':new_c,'total_videos':new_v},user_id)
             st.success("✅  Stats saved and logged to history")
-
     st.markdown("<div style='margin:1.5rem 0;'></div>",unsafe_allow_html=True)
     section("Monetization Progress")
     sp2=min(cfg.get('subscribers',5)/1000*100,100)
@@ -863,12 +830,10 @@ def page_analytics():
     c1,c2=st.columns(2)
     with c1: st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span style='font-weight:600;'>Subscribers</span><span style='color:#00e5a0;font-weight:700;'>{cfg.get('subscribers',5):,}/1,000</span></div><div style='background:#1e2229;border-radius:6px;height:8px;'><div style='background:linear-gradient(90deg,#00e5a0,#00b377);width:{sp2}%;height:8px;border-radius:6px;'></div></div><div style='font-size:0.72rem;color:#6b7280;margin-top:6px;'>{sp2:.1f}% · Need {max(1000-cfg.get('subscribers',5),0):,} more</div></div>",unsafe_allow_html=True)
     with c2: st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span style='font-weight:600;'>Watch Hours</span><span style='color:#0066ff;font-weight:700;'>{cfg.get('watch_hours',1.4):.1f}/4,000h</span></div><div style='background:#1e2229;border-radius:6px;height:8px;'><div style='background:linear-gradient(90deg,#0066ff,#0044cc);width:{min(hp2*50,100):.2f}%;height:8px;border-radius:6px;'></div></div><div style='font-size:0.72rem;color:#6b7280;margin-top:6px;'>{hp2:.3f}% · Need {max(4000-cfg.get('watch_hours',1.4),0):.1f}h more</div></div>",unsafe_allow_html=True)
-
     st.markdown("<div style='margin:1.5rem 0;'></div>",unsafe_allow_html=True)
     section("Video Performance Tracker")
     st.markdown("<div style='font-size:0.78rem;color:#6b7280;margin-bottom:0.75rem;'>Update after each video reaches 7 days. P3 = Phase 3 title score.</div>",unsafe_allow_html=True)
     for v in DEFAULT_VIDEOS: video_card_html(v)
-
     st.markdown("<div style='margin:1.5rem 0;'></div>",unsafe_allow_html=True)
     section("Automated Diagnosis")
     avg_ctr=cfg.get('avg_ctr',2.5)
@@ -881,16 +846,13 @@ def page_analytics():
     for t,d in diags: step_box(t,d)
 
 
-# ── VIDEO FACTORY ────────────────────────────────────────────
 def page_factory():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>🏭 Video Factory</h1>",unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>One idea in. Full video package out. Title · Hook · Script · Thumbnail · SEO · Shorts.</p>",unsafe_allow_html=True)
-
     gemini_key=cfg.get('gemini_api_key','')
     if not gemini_key:
         st.warning("⚠️  Add your Gemini API key in Settings.")
         return
-
     tab1,tab2,tab3,tab4=st.tabs(["🏭  Full Factory","💡  Auto Suggest","📊  Title Scorer","🖼️  Thumbnail Generator"])
 
     # ── FULL FACTORY ──
@@ -900,18 +862,14 @@ def page_factory():
         with col1: idea=st.text_area("Idea",placeholder="e.g. Build a prop firm EA in MQL5 that monitors daily drawdown and shuts down when FTMO limit is hit",height=80,label_visibility='collapsed')
         with col2: fmt=st.selectbox("Format",["long","short"])
         with col3: funnel=st.selectbox("Funnel",list(FUNNEL_DESCRIPTIONS.keys()))
-
         if st.button("⚡  Run Video Factory",use_container_width=True) and idea.strip():
             model=get_model()
             ctx=build_context()
-
-            # STEP 1 VIRALITY
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 1 — Virality Check")
             with st.spinner("Checking virality..."):
                 try: vr=ai_virality(model,idea,fmt,funnel,ctx)
                 except Exception as e: st.error(str(e)); return
-
             vs=vr['virality_score']
             vc='#00e5a0' if vs>=75 else '#ffd700' if vs>=60 else '#ff4560'
             vb=vr['breakdown']
@@ -921,19 +879,15 @@ def page_factory():
                     v_=vb.get(k,0); c_='#00e5a0' if v_>=16 else '#ffd700' if v_>=12 else '#ff4560'
                     st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.2rem;color:{c_};'>{v_}/20</div><div class='metric-lbl'>{l}</div></div>",unsafe_allow_html=True)
             with cols6[5]: st.markdown(f"<div class='metric-card'><div class='metric-val' style='color:{vc};'>{vs}</div><div class='metric-lbl'>Virality</div></div>",unsafe_allow_html=True)
-
             vdict_c='#00e5a0' if vr['verdict']=='approved' else '#ff4560'
             step_box(vr['verdict'].upper(),vr['verdict_reason'],vdict_c)
             if vr.get('better_angle'): step_box("💡 Better angle",vr['better_angle'],'#ffd700')
             if vr['verdict']=='rejected': st.warning("Update idea with better angle above and rerun."); return
-
-            # STEP 2 TITLE + HOOK
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 2 — Title & Hook")
             with st.spinner("Generating title and hook..."):
                 try: th=ai_title_hook(model,idea,fmt,funnel,ctx)
                 except Exception as e: st.error(str(e)); return
-
             ts,hs=th['title_score'],th['hook_score']
             c1_,c2_=st.columns(2)
             with c1_:
@@ -941,8 +895,6 @@ def page_factory():
                 st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span class='metric-lbl'>TITLE</span>{score_badge(ts)}</div><div style='font-size:1rem;font-weight:700;margin-bottom:8px;'>\"{th['title']}\"</div><div style='font-size:0.75rem;color:#6b7280;margin-bottom:8px;'>{th['title_reasoning']}</div>{alts}</div>",unsafe_allow_html=True)
             with c2_:
                 st.markdown(f"<div class='metric-card'><div style='display:flex;justify-content:space-between;margin-bottom:8px;'><span class='metric-lbl'>HOOK</span>{score_badge(hs)}</div><div style='font-size:0.82rem;color:#c9d1d9;line-height:1.7;font-family:\"JetBrains Mono\",monospace;'>{th['hook_script']}</div><div style='font-size:0.72rem;color:#6b7280;margin-top:8px;'>{th['hook_reasoning']}</div></div>",unsafe_allow_html=True)
-
-            # STEP 3 SCRIPT
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 3 — Full Script")
             with st.spinner("Writing script part 1 of 2..."):
@@ -951,43 +903,32 @@ def page_factory():
             with st.spinner("Writing script part 2 of 2..."):
                 try: p2=ai_script_part(model,idea,th['title'],th['hook_script'],funnel,ctx,2,p1)
                 except Exception: p2=""
-
             script=p1+"\n\n"+p2
             wc=len(script.split()); est=round(wc/130)
-
-            # Apply TTS phonetics
-            tts_fixes = {'MQL5':'Em Cue El Five','FTMO':'F T M O','MT5':'M T 5','NFP':'N F P',
-                         'Sharpe':'Sharp','EURUSD':'Euro U S D','EA':'E A'}
+            tts_fixes = {'MQL5':'Em Cue El Five','FTMO':'F T M O','MT5':'M T 5','NFP':'N F P','Sharpe':'Sharp','EURUSD':'Euro U S D','EA':'E A'}
             script_tts = script
             for k,v in tts_fixes.items():
                 script_tts = script_tts.replace(k,v)
-
             st.markdown(f"<div style='display:flex;gap:1rem;margin-bottom:0.75rem;'><span class='score-badge score-green'>📝 {wc} words</span><span class='score-badge score-green'>⏱️ ~{est} min</span><span class='score-badge score-yellow'>🔊 TTS-ready version below</span></div>",unsafe_allow_html=True)
-
             stab1,stab2=st.tabs(["📄  Original Script","🔊  TTS-Ready (Chatterbox)"])
             with stab1: st.markdown(f"<div class='script-block'>{script}</div>",unsafe_allow_html=True)
             with stab2:
                 st.markdown("<div style='font-size:0.78rem;color:#6b7280;margin-bottom:0.5rem;'>Phonetics applied. Ready to paste into Chatterbox Cell 5.</div>",unsafe_allow_html=True)
                 st.markdown(f"<div class='script-block'>{script_tts}</div>",unsafe_allow_html=True)
-
             col_dl1,col_dl2=st.columns(2)
             with col_dl1: st.download_button("⬇️  Download Script",script,file_name=f"script_{datetime.now().strftime('%Y%m%d_%H%M')}.txt")
             with col_dl2: st.download_button("⬇️  Download TTS Version",script_tts,file_name=f"script_tts_{datetime.now().strftime('%Y%m%d_%H%M')}.txt")
-
-            # STEP 4 PACKAGING — FIXED THUMBNAIL RENDERING
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 4 — Thumbnail · SEO · Shorts · CTA")
             with st.spinner("Generating packaging..."):
                 try: pk=ai_packaging(model,idea,th['title'],fmt,funnel,ctx)
                 except Exception as e: st.error(str(e)); return
-
             th_data=pk.get('thumbnail',{})
             seo=pk.get('seo',{})
             shorts=pk.get('shorts',[])
             cta=pk.get('cta_script','')
             rec=th_data.get('recommended','1')
-
-            # ✅ FIXED: Thumbnail options rendering (avoids nested f-string syntax error)
+            # ✅ FIXED: Thumbnail options rendering
             tc1, tc2 = st.columns(2)
             for col, key in zip([tc1, tc2], ['option_1', 'option_2']):
                 with col:
@@ -996,19 +937,8 @@ def page_factory():
                     is_rec = rec == num
                     border = '#00e5a0' if is_rec else '#1e2229'
                     rec_tag = ' ⭐ RECOMMENDED' if is_rec else ''
-                    
-                    # Build colors HTML
-                    colors_html = ''.join([
-                        f"<span style='display:inline-block;width:16px;height:16px;border-radius:3px;background:{c};margin-right:3px;vertical-align:middle;'></span>" 
-                        for c in opt.get('colors', [])
-                    ])
-                    
-                    # Build sub_text HTML separately to avoid nested f-string issues
-                    sub_text_html = ""
-                    if opt.get('sub_text'):
-                        sub_text_html = f'<div style="font-size:0.75rem;color:#6b7280;margin-bottom:4px;">Sub: {opt.get("sub_text")}</div>'
-                    
-                    # Build the card HTML using string concatenation
+                    colors_html = ''.join([f"<span style='display:inline-block;width:16px;height:16px;border-radius:3px;background:{c};margin-right:3px;vertical-align:middle;'></span>" for c in opt.get('colors', [])])
+                    sub_text_html = f'<div style="font-size:0.75rem;color:#6b7280;margin-bottom:4px;">Sub: {opt.get("sub_text")}</div>' if opt.get('sub_text') else ''
                     card_html = (
                         f"<div class='metric-card' style='border-color:{border};'>"
                         f"<div style='font-size:0.72rem;font-weight:700;color:#6b7280;margin-bottom:8px;'>OPTION {num}{rec_tag}</div>"
@@ -1022,34 +952,22 @@ def page_factory():
                         f"</div>"
                     )
                     st.markdown(card_html, unsafe_allow_html=True)
-
             section("SEO Package")
             tags_html=''.join([f"<span class='tag'>{t}</span>" for t in seo.get('tags',[])])
             st.markdown(f"<div class='step-box'><div style='font-size:0.78rem;font-weight:600;margin-bottom:6px;'>Description:</div><div style='font-size:0.78rem;color:#9ca3af;'>{seo.get('description_line1','')}</div><div style='font-size:0.78rem;color:#9ca3af;'>{seo.get('description_line2','')}</div><div style='margin-top:10px;'>{tags_html}</div></div>",unsafe_allow_html=True)
             if seo.get('chapters') and fmt=='long':
                 ch_text='\n'.join([f"{c['time']} {c['title']}" for c in seo['chapters']])
                 st.markdown(f"<div class='script-block' style='font-size:0.8rem;'>{ch_text}</div>",unsafe_allow_html=True)
-
             section("3 Shorts to Extract")
             for i,s in enumerate(shorts,1):
                 st.markdown(f"<div class='video-card'><div style='display:flex;gap:0.5rem;align-items:center;margin-bottom:4px;'><span style='font-size:0.65rem;font-weight:700;color:#00e5a0;border:1px solid #00e5a0;border-radius:4px;padding:1px 6px;'>SHORT #{i}</span><span style='font-size:0.83rem;font-weight:600;'>{s.get('title','')}</span></div><div style='font-size:0.75rem;color:#9ca3af;margin-bottom:3px;'>Hook: {s.get('hook','')}</div><div style='font-size:0.72rem;color:#6b7280;'>Clip: {s.get('clip','')}</div></div>",unsafe_allow_html=True)
-
             section("CTA Script")
             st.markdown(f"<div class='script-block' style='font-size:0.82rem;'>{cta}</div>",unsafe_allow_html=True)
-
-            # Save to history
-            db_save('video_history',{
-                'user_id':user_id,'idea':idea,'format':fmt,'funnel':funnel,
-                'title':th['title'],'title_score':ts,'hook_score':hs,
-                'virality_score':vs,'word_count':wc,'script':script,
-                'tags':json.dumps(seo.get('tags',[])),
-                'status':'generated','real_ctr':None,'real_retention':None
-            },user_id)
-
+            db_save('video_history',{'user_id':user_id,'idea':idea,'format':fmt,'funnel':funnel,'title':th['title'],'title_score':ts,'hook_score':hs,'virality_score':vs,'word_count':wc,'script':script,'tags':json.dumps(seo.get('tags',[])),'status':'generated','real_ctr':None,'real_retention':None},user_id)
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             st.markdown(f"<div style='background:rgba(0,229,160,0.05);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:1.25rem;'><div style='font-size:0.9rem;font-weight:700;color:#00e5a0;margin-bottom:0.75rem;'>✅  Video Factory Complete — saved to History</div><div style='display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;'><span style='font-size:0.8rem;color:#9ca3af;'>Virality <b style='color:#00e5a0;'>{vs}/100</b></span><span style='font-size:0.8rem;color:#9ca3af;'>Title <b style='color:#00e5a0;'>{ts}/100</b></span><span style='font-size:0.8rem;color:#00e5a0;'>Hook <b>{hs}/100</b></span><span style='font-size:0.8rem;color:#9ca3af;'>Script <b style='color:#e8eaf0;'>{wc} words</b></span><span style='font-size:0.8rem;color:#9ca3af;'>~{est} min</span></div><div style='font-size:0.8rem;color:#6b7280;line-height:1.8;'>1. Download TTS script → paste into Chatterbox &nbsp;·&nbsp; 2. Build thumbnail in Canva &nbsp;·&nbsp; 3. Record OBS &nbsp;·&nbsp; 4. Sync Shotcut &nbsp;·&nbsp; 5. Upload with SEO &nbsp;·&nbsp; 6. Come back to History to log real CTR</div></div>",unsafe_allow_html=True)
 
-    # ── AUTO SUGGEST ──
+    # ── AUTO SUGGEST — ✅ FIXED NESTED F-STRING ISSUE ──
     with tab2:
         section("Auto-suggest 3 video ideas from competitor trends")
         st.markdown("<div style='font-size:0.8rem;color:#6b7280;margin-bottom:1rem;'>Run Competitor Intel first for best results.</div>",unsafe_allow_html=True)
@@ -1063,14 +981,29 @@ def page_factory():
             with st.spinner("Generating..."):
                 try: result=ai_suggestions(model,trending,existing,ctx)
                 except Exception as e: st.error(str(e)); return
-
             for s in result.get('suggestions',[]):
                 fmt_=s.get('format','').upper().replace('_',' ')
                 score=s.get('title_score',0)
-                sc='#00e5a0' if score>=75 else '#ffd700'
+                # ✅ FIX: Build score class separately to avoid nested f-string
+                score_class = 'score-green' if score>=75 else 'score-yellow'
                 fmt_c='#0066ff' if 'LONG' in fmt_ else '#00e5a0'
                 tags_html=''.join([f"<span class='tag'>{t}</span>" for t in s.get('tags',[])])
-                st.markdown(f"<div class='video-card' style='margin-bottom:1rem;'><div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;'><div><span style='font-size:0.65rem;font-weight:700;color:{fmt_c};border:1px solid {fmt_c};border-radius:4px;padding:1px 6px;margin-right:6px;'>IDEA #{s.get('id')} · {fmt_}</span><span class='score-badge {\"score-green\" if score>=75 else \"score-yellow\"}' style='font-size:0.65rem;'>Title {score}/100</span></div><span class='funnel-badge'>{s.get('funnel','').upper()}</span></div><div style='font-size:0.9rem;font-weight:700;margin-bottom:4px;'>\"{s.get('title','')}\"</div><div style='font-size:0.78rem;color:#6b7280;margin-bottom:8px;'>{s.get('topic','')} · {s.get('why_now','')}</div><div style='font-size:0.75rem;color:#9ca3af;background:#0d1117;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:8px;font-family:\"JetBrains Mono\",monospace;'>{s.get('hook','')}</div><div style='font-size:0.72rem;color:#6b7280;margin-bottom:4px;'>📺 {s.get('show','')}</div><div style='font-size:0.72rem;color:#6b7280;margin-bottom:4px;'>🔒 {s.get('hide','')}</div><div style='font-size:0.72rem;color:#6b7280;margin-bottom:8px;'>📢 {s.get('cta','')}</div><div>{tags_html}</div></div>",unsafe_allow_html=True)
+                # ✅ FIX: Build card HTML with pre-computed values
+                card_html = (
+                    f"<div class='video-card' style='margin-bottom:1rem;'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;'>"
+                    f"<div><span style='font-size:0.65rem;font-weight:700;color:{fmt_c};border:1px solid {fmt_c};border-radius:4px;padding:1px 6px;margin-right:6px;'>IDEA #{s.get('id')} · {fmt_}</span>"
+                    f"<span class='score-badge {score_class}' style='font-size:0.65rem;'>Title {score}/100</span></div>"
+                    f"<span class='funnel-badge'>{s.get('funnel','').upper()}</span></div>"
+                    f"<div style='font-size:0.9rem;font-weight:700;margin-bottom:4px;'>\"{s.get('title','')}\"</div>"
+                    f"<div style='font-size:0.78rem;color:#6b7280;margin-bottom:8px;'>{s.get('topic','')} · {s.get('why_now','')}</div>"
+                    f"<div style='font-size:0.75rem;color:#9ca3af;background:#0d1117;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:8px;font-family:JetBrains Mono,monospace;'>{s.get('hook','')}</div>"
+                    f"<div style='font-size:0.72rem;color:#6b7280;margin-bottom:4px;'>📺 {s.get('show','')}</div>"
+                    f"<div style='font-size:0.72rem;color:#6b7280;margin-bottom:4px;'>🔒 {s.get('hide','')}</div>"
+                    f"<div style='font-size:0.72rem;color:#6b7280;margin-bottom:8px;'>📢 {s.get('cta','')}</div>"
+                    f"<div>{tags_html}</div></div>"
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
             st.info("💡 Pick one idea, go to Full Factory tab, paste it as your idea.")
 
     # ── TITLE SCORER ──
@@ -1088,8 +1021,12 @@ def page_factory():
                 except Exception as e: st.error(str(e)); return
             ts,hs=result.get('title_score',0),result.get('hook_score',0)
             c1_m,c2_m=st.columns(2)
-            with c1_m: st.markdown(f"<div class='metric-card'><div class='metric-val'>{'🟢' if ts>=75 else '🟡' if ts>=50 else '🔴'} {ts}/100</div><div class='metric-lbl'>Title Score</div></div>",unsafe_allow_html=True)
-            with c2_m: st.markdown(f"<div class='metric-card'><div class='metric-val'>{'🟢' if hs>=75 else '🟡' if hs>=50 else '🔴'} {hs}/100</div><div class='metric-lbl'>Hook Score</div></div>",unsafe_allow_html=True)
+            with c1_m: 
+                title_emoji = '🟢' if ts>=75 else '🟡' if ts>=50 else '🔴'
+                st.markdown(f"<div class='metric-card'><div class='metric-val'>{title_emoji} {ts}/100</div><div class='metric-lbl'>Title Score</div></div>",unsafe_allow_html=True)
+            with c2_m: 
+                hook_emoji = '🟢' if hs>=75 else '🟡' if hs>=50 else '🔴'
+                st.markdown(f"<div class='metric-card'><div class='metric-val'>{hook_emoji} {hs}/100</div><div class='metric-lbl'>Hook Score</div></div>",unsafe_allow_html=True)
             step_box("Title Diagnosis",result.get('title_diagnosis',''))
             step_box("Hook Diagnosis",result.get('hook_diagnosis',''))
             if result.get('calibration_note'): step_box("📐 Calibration Note",result['calibration_note'],'#ffd700')
@@ -1111,27 +1048,24 @@ def page_factory():
     with tab4:
         section("AI Thumbnail Generator")
         st.markdown("<div style='font-size:0.82rem;color:#6b7280;margin-bottom:1rem;'>Generates a thumbnail brief + actual image using AI. Free via Pollinations AI.</div>",unsafe_allow_html=True)
-
         th_title=st.text_input("Video title",placeholder="I Built a Prop Firm EA That Passed FTMO in 30 Days",key="th_title")
         th_result_text=st.text_input("Key result to show",placeholder="EA passed FTMO, 30 days, automated, risk managed",key="th_result")
         th_style=st.selectbox("Style",["dark minimal","dark dramatic","green success","red warning","split screen"])
-
         col_brief,col_gen=st.columns(2)
         with col_brief: brief_btn=st.button("📋  Generate Design Brief",use_container_width=True)
         with col_gen:   gen_btn  =st.button("🖼️  Generate Thumbnail Image",use_container_width=True)
-
         if brief_btn and th_title:
             model=get_model(); ctx=build_context()
             with st.spinner("Generating thumbnail brief..."):
                 try: th_brief=ai_thumbnail_prompt(model,th_title,th_result_text,th_style)
                 except Exception as e: st.error(str(e)); return
-
             colors_html=''.join([f"<span style='display:inline-block;width:20px;height:20px;border-radius:4px;background:{c};margin-right:4px;vertical-align:middle;'></span>" for c in th_brief.get('color_scheme','#000').split(',')])
+            sub_text_brief = f"<div style='font-size:0.85rem;color:#6b7280;margin-bottom:8px;'>Sub text: \"{th_brief.get('sub_text','')}\"</div>" if th_brief.get('sub_text') else ''
             st.markdown(f"""
             <div class='metric-card' style='margin-top:1rem;'>
                 <div style='font-size:0.72rem;color:#6b7280;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.08em;'>Thumbnail Design Brief</div>
                 <div style='font-size:1.1rem;font-weight:700;margin-bottom:4px;'>Main text: "{th_brief.get('main_text','')}"</div>
-                {f"<div style='font-size:0.85rem;color:#6b7280;margin-bottom:8px;'>Sub text: \"{th_brief.get('sub_text','')}\"</div>" if th_brief.get('sub_text') else ''}
+                {sub_text_brief}
                 <div style='font-size:0.78rem;color:#9ca3af;margin-bottom:8px;'>Layout: {th_brief.get('layout','')}</div>
                 <div style='margin-bottom:12px;'>{colors_html}</div>
                 <div style='font-size:0.75rem;color:#ffd700;margin-bottom:8px;'>CTR target: {th_brief.get('predicted_ctr','')}</div>
@@ -1139,15 +1073,12 @@ def page_factory():
                 <div style='font-size:0.75rem;color:#9ca3af;'>{th_brief.get('canva_steps','')}</div>
             </div>
             """, unsafe_allow_html=True)
-
             st.session_state['th_brief'] = th_brief
-
         if gen_btn and th_title:
             brief=st.session_state.get('th_brief',{})
             img_prompt=brief.get('image_prompt','') if brief else f"YouTube thumbnail dark background {th_title} {th_result_text} bold text high contrast professional trading"
             if not img_prompt:
                 img_prompt=f"YouTube thumbnail for algorithmic trading video titled {th_title}, dark background, bold text, high contrast, professional, {th_style}"
-
             with st.spinner("Generating thumbnail image... (free via Pollinations AI, takes 15-20 seconds)"):
                 img_bytes=generate_thumbnail_image(img_prompt)
                 if img_bytes:
@@ -1158,19 +1089,14 @@ def page_factory():
                     st.error("Image generation failed. Try the design brief instead and build in Canva manually.")
 
 
-# ── HISTORY (Level 1) ────────────────────────────────────────
 def page_history():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>📁 Video History</h1>",unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>Every video you generate is saved here. Update real metrics to calibrate the model.</p>",unsafe_allow_html=True)
-
     records=db_fetch('video_history',user_id,50)
-
     if not records:
         st.markdown("<div style='background:#111318;border:1px solid #1e2229;border-radius:12px;padding:2rem;text-align:center;margin-top:2rem;'><div style='font-size:2rem;margin-bottom:0.5rem;'>📁</div><div style='font-size:1rem;font-weight:600;margin-bottom:0.5rem;'>No videos yet</div><div style='font-size:0.82rem;color:#6b7280;'>Run the Video Factory to generate your first video package. It will be saved here automatically.</div></div>",unsafe_allow_html=True)
         return
-
     section(f"{len(records)} videos generated")
-
     for r in records:
         ts_=r.get('title_score',0)
         hs_=r.get('hook_score',0)
@@ -1178,23 +1104,24 @@ def page_history():
         real_ctr=r.get('real_ctr')
         real_ret=r.get('real_retention')
         created=r.get('created_at','')[:10] if r.get('created_at') else ''
-
         with st.expander(f"{'✅' if real_ctr else '⏳'} {r.get('title','Untitled')} — {created}"):
             col1,col2,col3,col4=st.columns(4)
-            with col1: st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{'🟢' if vs_>=75 else '🟡'} {vs_}</div><div class='metric-lbl'>Virality</div></div>",unsafe_allow_html=True)
-            with col2: st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{'🟢' if ts_>=75 else '🟡'} {ts_}</div><div class='metric-lbl'>Title Score</div></div>",unsafe_allow_html=True)
-            with col3: st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{'🟢' if hs_>=75 else '🟡'} {hs_}</div><div class='metric-lbl'>Hook Score</div></div>",unsafe_allow_html=True)
+            with col1: 
+                vs_emoji = '🟢' if vs_>=75 else '🟡'
+                st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{vs_emoji} {vs_}</div><div class='metric-lbl'>Virality</div></div>",unsafe_allow_html=True)
+            with col2: 
+                ts_emoji = '🟢' if ts_>=75 else '🟡'
+                st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{ts_emoji} {ts_}</div><div class='metric-lbl'>Title Score</div></div>",unsafe_allow_html=True)
+            with col3: 
+                hs_emoji = '🟢' if hs_>=75 else '🟡'
+                st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;'>{hs_emoji} {hs_}</div><div class='metric-lbl'>Hook Score</div></div>",unsafe_allow_html=True)
             with col4:
                 ctr_c_='#00e5a0' if real_ctr and real_ctr>=4 else '#ffd700' if real_ctr else '#6b7280'
                 st.markdown(f"<div class='metric-card'><div class='metric-val' style='font-size:1.3rem;color:{ctr_c_};'>{f'{real_ctr}%' if real_ctr else '—'}</div><div class='metric-lbl'>Real CTR</div></div>",unsafe_allow_html=True)
-
-            # Show script if available
             if r.get('script'):
                 if st.checkbox("Show script",key=f"script_{r.get('id','')}"):
                     st.markdown(f"<div class='script-block' style='max-height:300px;overflow-y:auto;'>{r['script']}</div>",unsafe_allow_html=True)
                     st.download_button("⬇️  Download Script",r['script'],file_name=f"script_{r.get('id','')}.txt",key=f"dl_{r.get('id','')}")
-
-            # Update real metrics
             st.markdown("<div class='section-header'>Update Real Performance (after 7 days)</div>",unsafe_allow_html=True)
             with st.form(f"update_{r.get('id','')}"):
                 uc1,uc2,uc3=st.columns(3)
@@ -1205,8 +1132,6 @@ def page_history():
                     db_update('video_history',r['id'],{'real_ctr':new_ctr,'real_retention':new_ret,'real_views':new_views,'status':'posted'})
                     st.success("✅  Metrics saved — model will use this for calibration")
                     st.rerun()
-
-            # Auto calibration insight
             if real_ctr and ts_:
                 gap=real_ctr - (ts_/100*10)
                 if gap > 1:
@@ -1217,17 +1142,13 @@ def page_history():
                     step_box("📐 Calibration","Model score aligned with real CTR. Calibration is accurate for this type of title.",'#ffd700')
 
 
-# ── WEEKLY REPORT (Level 3) ──────────────────────────────────
 def page_weekly_report():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>📧 Weekly Report</h1>",unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>Generate your Monday morning content briefing. Get it in your inbox automatically.</p>",unsafe_allow_html=True)
-
     gemini_key=cfg.get('gemini_api_key','')
     if not gemini_key:
         st.warning("⚠️  Add Gemini API key in Settings.")
         return
-
-    # Email setup
     section("Email Setup")
     with st.form("email_setup"):
         email_input=st.text_input("Your email for weekly reports",value=cfg.get('email',''),placeholder="you@gmail.com")
@@ -1235,28 +1156,21 @@ def page_weekly_report():
             st.session_state['config']['email']=email_input
             db_save('user_configs',{'config_json':st.session_state['config']},user_id)
             st.success("✅  Email saved")
-
     st.markdown("<hr class='divider'>",unsafe_allow_html=True)
     section("Generate This Week's Report")
-
     col_gen,col_send=st.columns(2)
     with col_gen: gen_report=st.button("📊  Generate Report Now",use_container_width=True)
     with col_send: send_report=st.button("📧  Send to My Email",use_container_width=True,disabled=not cfg.get('email',''))
-
     if gen_report:
         model=get_model()
         competitor_data=st.session_state.get('competitor_data',{})
         if not competitor_data:
             st.info("No competitor data found. Run Competitor Intel first for better report quality.")
             competitor_data={'trending':[{'title':'FTMO prop firm algo','views_per_day':800,'days_old':5}]}
-
         with st.spinner("Generating your Monday morning report..."):
             try: report=generate_weekly_report(model,competitor_data,cfg)
             except Exception as e: st.error(str(e)); return
-
         st.session_state['weekly_report']=report
-
-        # Display report
         st.markdown(f"""
         <div style='background:rgba(0,229,160,0.05);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:1.5rem;margin-top:1rem;'>
             <div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;'>
@@ -1266,7 +1180,6 @@ def page_weekly_report():
             <div style='font-size:0.85rem;color:#9ca3af;margin-bottom:1.5rem;'>{report.get('weekly_summary','')}</div>
         </div>
         """, unsafe_allow_html=True)
-
         section("Top 3 Video Ideas This Week")
         for idea in report.get('top_3_video_ideas',[]):
             score_c='#00e5a0' if idea.get('estimated_virality',0)>=80 else '#ffd700'
@@ -1276,23 +1189,18 @@ def page_weekly_report():
                     <div style='font-size:0.9rem;font-weight:700;'>#{idea.get('rank')} {idea.get('title','')}</div>
                     <span style='font-size:0.7rem;font-weight:700;color:{score_c};border:1px solid {score_c};border-radius:4px;padding:1px 6px;'>Virality {idea.get('estimated_virality',0)}</span>
                 </div>
-                <div style='font-size:0.78rem;color:#9ca3af;font-family:"JetBrains Mono",monospace;margin-bottom:6px;'>{idea.get('hook','')}</div>
+                <div style='font-size:0.78rem;color:#9ca3af;font-family:JetBrains Mono,monospace;margin-bottom:6px;'>{idea.get('hook','')}</div>
                 <div style='font-size:0.72rem;color:#6b7280;'>{idea.get('why_this_week','')} · Funnel: {idea.get('funnel','')}</div>
             </div>
             """, unsafe_allow_html=True)
-
         section("This Week Priorities")
         for p in report.get('this_week_priorities',[]): step_box("→",p)
-
         section("Diagnostics")
         step_box("CTR",report.get('ctr_diagnosis',''))
         step_box("Retention",report.get('retention_diagnosis',''))
         step_box("Thumbnail Fix",report.get('thumbnail_fix',''),'#ffd700')
-
-        # Save report
         db_save('weekly_reports',{'user_id':user_id,'report':json.dumps(report)},user_id)
         st.success("✅  Report saved to history")
-
     if send_report:
         report=st.session_state.get('weekly_report')
         if not report:
@@ -1307,29 +1215,24 @@ def page_weekly_report():
                 st.success("✅  Report sent to your email!") if ok else st.error("Email failed. Check RESEND_API_KEY in secrets.")
 
 
-# ── SETTINGS ─────────────────────────────────────────────────
 def page_settings():
     st.markdown("<h1 style='font-size:1.8rem;margin-bottom:0.25rem;'>⚙️ Settings</h1>",unsafe_allow_html=True)
     st.markdown("<p style='color:#6b7280;font-size:0.9rem;margin-bottom:2rem;'>Configure your API keys and channel info.</p>",unsafe_allow_html=True)
-
     section("API Keys")
     with st.form("settings"):
         gem_key=st.text_input("Gemini API Key (free — aistudio.google.com)",value=cfg.get('gemini_api_key',''),type="password",placeholder="AIza...")
         yt_key=st.text_input("YouTube Data API Key (console.cloud.google.com)",value=cfg.get('youtube_api_key',''),type="password",placeholder="AIza...")
-
         section("Channel Info")
         ch_name=st.text_input("Channel Name",value=cfg.get('channel_name','AlgoQuant Trading'))
         bio=st.text_input("Creator Bio",value=cfg.get('creator_bio','Financial engineer from Morocco, self-taught quant'))
         prods=st.text_input("Products",value=cfg.get('products','SaaS, MQL5 EAs, courses, freelance'))
         email=st.text_input("Email for weekly reports",value=cfg.get('email',''))
-
         section("Channel Stats")
         c1,c2,c3,c4=st.columns(4)
         with c1: new_s=st.number_input("Subscribers",min_value=0,value=cfg.get('subscribers',5))
         with c2: new_h=st.number_input("Watch Hours",min_value=0.0,value=float(cfg.get('watch_hours',1.4)),format="%.1f")
         with c3: new_c=st.number_input("Avg CTR %",min_value=0.0,value=float(cfg.get('avg_ctr',2.5)),format="%.1f")
         with c4: new_v=st.number_input("Total Videos",min_value=0,value=cfg.get('total_videos',4))
-
         if st.form_submit_button("💾  Save All Settings",use_container_width=True):
             new_config={
                 'gemini_api_key':gem_key,'youtube_api_key':yt_key,
@@ -1337,29 +1240,23 @@ def page_settings():
                 'subscribers':new_s,'watch_hours':new_h,'avg_ctr':new_c,'total_videos':new_v,
             }
             st.session_state['config']=new_config
-            # Save to DB
             db_save('user_configs',{'config_json':new_config},user_id)
             st.success("✅  Settings saved")
-
     st.markdown("<hr class='divider'>",unsafe_allow_html=True)
     section("Streamlit Secrets Required")
     st.code("""# Add these in Streamlit Cloud → Settings → Secrets
 GEMINI_API_KEY = "AIza..."
 YOUTUBE_API_KEY = "AIza..."
-
 # Optional — for Google OAuth login
 GOOGLE_CLIENT_ID = "..."
 GOOGLE_CLIENT_SECRET = "..."
 REDIRECT_URI = "https://yourapp.streamlit.app"
-
 # Optional — for email reports
 RESEND_API_KEY = "re_..."
-
 # Optional — for persistence
 SUPABASE_URL = "https://xxx.supabase.co"
 SUPABASE_KEY = "eyJ..."
 """, language="toml")
-
     st.markdown("<hr class='divider'>",unsafe_allow_html=True)
     section("Supabase Setup (for persistence)")
     st.markdown("""
@@ -1381,33 +1278,28 @@ create table video_history (
   real_ctr float, real_retention float, real_views int,
   created_at timestamp default now()
 );
-
 create table competitor_reports (
   id uuid default gen_random_uuid() primary key,
   user_id text, data text, channel_count int,
   created_at timestamp default now()
 );
-
 create table channel_snapshots (
   id uuid default gen_random_uuid() primary key,
   user_id text, subscribers int, watch_hours float,
   avg_ctr float, total_videos int,
   created_at timestamp default now()
 );
-
 create table weekly_reports (
   id uuid default gen_random_uuid() primary key,
   user_id text, report text,
   created_at timestamp default now()
 );
-
 create table user_configs (
   id uuid default gen_random_uuid() primary key,
   user_id text unique, config_json jsonb,
   created_at timestamp default now()
 );
 """, language="sql")
-
     step_box("3. Add SUPABASE_URL and SUPABASE_KEY to Streamlit secrets","Then redeploy. All video history, reports, and settings will persist across sessions.")
 
 
