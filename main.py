@@ -312,7 +312,7 @@ def get_model():
     if not key:
         return None
     genai.configure(api_key=key)
-    return genai.GenerativeModel('gemini-1.5-flash')
+    return genai.GenerativeModel('gemini-3.1-flash-lite')
 
 
 def call_gemini(model, prompt, max_tokens=2000):
