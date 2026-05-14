@@ -1,5 +1,7 @@
-streamlit==1.35.0
-google-generativeai==0.5.0
-pandas==2.2.0
-supabase==2.3.0
-youtube-transcript-api==0.6.2
+streamlit>=1.38.0
+google-generativeai>=0.7.0
+pandas>=2.0.0
+supabase
+youtube-transcript-api
+requests
+google-api-python-client
