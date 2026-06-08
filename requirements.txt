@@ -6,3 +6,4 @@ youtube-transcript-api==0.6.2
 requests
 google-api-python-client
 
+
