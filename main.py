@@ -1,6 +1,7 @@
 """
-AlgoQuant Studio v2.1 — Full Production SaaS
+AlgoQuant Studio v2.2 — Full Production SaaS
 Levels: Persistence (Supabase) + Auth (Google OAuth) + Auto Reports + Thumbnail Generator
++ MULTI-NICHE SUPPORT: Trading, Comedy, Sports, Business, Gaming, Tech, General
 + SHORT FIX: Format-aware script generation
 + NEW FEATURE: Long Script → 3 Shorts Extractor with Visual Plans
 Single file. Deploy: streamlit run algoquant_studio_v2.py
@@ -132,7 +133,7 @@ def login_page():
     <div style='text-align:center;max-width:420px;padding:3rem;background:#111318;border:1px solid #1e2229;border-radius:20px;'>
         <div style='font-size:3rem;margin-bottom:0.5rem;'>⚡</div>
         <div style='font-size:1.8rem;font-weight:700;color:#00e5a0;margin-bottom:0.25rem;'>AlgoQuant Studio</div>
-        <div style='font-size:0.82rem;color:#6b7280;margin-bottom:2rem;letter-spacing:0.08em;text-transform:uppercase;'>Content Intelligence for Algo Creators</div>
+        <div style='font-size:0.82rem;color:#6b7280;margin-bottom:2rem;letter-spacing:0.08em;text-transform:uppercase;'>Content Intelligence for Creators</div>
         <div style='font-size:0.9rem;color:#9ca3af;margin-bottom:2rem;line-height:1.6;'>
             The AI system that tells you exactly what video to make, writes the script,
             scores the title, and designs the thumbnail.
@@ -281,15 +282,20 @@ user_id = user.get('id', 'demo')
 # ════════════════════════════════════════════════════════════
 
 FUNNEL_DESCRIPTIONS = {
-    'saas'      : 'SaaS platform waitlist — mention you are building a tool that automates this for traders',
+    'saas'      : 'SaaS platform waitlist — mention you are building a tool that automates this',
     'ea'        : 'MQL5 EA product — full working EA available on MQL5 market link in description',
     'course'    : 'Upcoming course — covered in full detail in the course link in description',
-    'freelance' : 'Freelance service — you build custom EAs for traders link in description'
+    'freelance' : 'Freelance service — you build custom solutions link in description',
+    'merch'     : 'Merchandise — branded clothing/accessories link in description',
+    'sponsor'   : 'Sponsorship — mention sponsor naturally in video',
+    'none'      : 'No funnel — pure content for growth'
 }
+
 FORMAT_CONTEXT = {
     'short': 'SHORT video under 60 seconds. Script under 130 words. Result in first sentence. Never Hi or Welcome.',
     'long' : 'LONG FORM video 10-20 minutes. Include [minute] markers. Show concept not full code.'
 }
+
 DEFAULT_CHANNELS = {
     'Part Time Larry'   : 'UCY2ifv8iH1Dsgjrz-h3lWLQ',
     'The Quant Science' : 'UCnMn36GT_H0X-w5_ckLtlgQ',
@@ -340,31 +346,142 @@ def call_gemini_text(model, prompt, max_tokens=2000):
             else: raise e
 
 
-def build_context():
-    return f"""
+def build_context(niche="📈 Trading/Quant"):
+    """Dynamic context based on niche selection"""
+    
+    CONTEXTS = {
+        "📈 Trading/Quant": f"""
 Channel: {cfg.get('channel_name','AlgoQuant Trading')}
 Niche: Algorithmic trading, quantitative finance, automated trading systems
-Target: Prop firm traders (FTMO/Funded Next), manual traders, crypto quants, algo investors
+Target: Prop firm traders (FTMO/Funded Next), manual traders, crypto quants
 Creator: {cfg.get('creator_bio','Financial engineer, self-taught quant')}
 Pipeline: idea → Python backtest → MQL5 → live MT5
 Products: {cfg.get('products','SaaS, MQL5 EAs, courses, freelance')}
 
-What works (competitor data):
-- Titles starting with I: 100% success, 80k avg views
+What works:
+- Titles starting with I: 100% success
 - Dollar sign: 100% success, 113k avg views
 - Python/backtest/FTMO/algo/bot: 100% success
-- Number in title: 88% success
-- Warning/never/secret: very high
 - Honest failure content: massive engagement
 
 Stats: {cfg.get('subscribers',5)} subs · {cfg.get('avg_ctr',2.5)}% CTR · {cfg.get('watch_hours',1.4)}h
 
-Hook rules (CRITICAL):
+Hook rules:
 - First sentence MUST contain result or bold claim
 - NEVER start with Hi, Welcome, Today we are
-- Must match title promise exactly
 - TTS-friendly: short sentences, natural pauses
+""",
+        
+        "🎭 Comedy/Entertainment": f"""
+Channel: Comedy/Entertainment Channel
+Niche: Observational comedy, social dynamics, dating, everyday life absurdities
+Target: 18-35 demographic, relatable humor, viral potential
+Style: Self-deprecating, ironic, absurd analogies, exaggeration
+Products: Merch, Patreon, sponsorships
+
+What works:
+- Relatable pain points ("we've all been there")
+- Absurd comparisons ("my dating life is like...")
+- Self-mockery (you're the fool, not the audience)
+- Trending topics/memes
+- Short, punchy hooks
+
+Stats: {cfg.get('subscribers',5)} subs · {cfg.get('avg_ctr',2.5)}% CTR
+
+Hook rules:
+- First 3 seconds = punchline or bold statement
+- NEVER explain setup first
+- Pattern interrupt immediately
+- Keep it PG-13, shareable
+""",
+        
+        "🏃 Sports/Fitness": f"""
+Channel: Sports/Fitness Content
+Niche: Training, performance, athlete mindset, sports analysis
+Target: Athletes, gym-goers, sports fans
+Style: Motivational, analytical, breakdown-focused
+
+What works:
+- Before/after transformations
+- Myth-busting common beliefs
+- Pro athlete analysis
+- Controversial takes (respectfully)
+
+Hook rules:
+- Lead with shocking stat or result
+- Challenge conventional wisdom
+- Show don't tell
+""",
+        
+        "💼 Business/SaaS": f"""
+Channel: Business/SaaS Content
+Niche: Startups, SaaS products, entrepreneurship, growth strategies
+Target: Entrepreneurs, indie hackers, SaaS founders
+Style: Practical, actionable, case studies
+
+What works:
+- Revenue breakdowns
+- "How I built X in Y days"
+- Failure stories with lessons
+- Tool recommendations
+
+Hook rules:
+- Lead with specific numbers
+- Promise actionable value
+- Show proof/results
+""",
+        
+        "🎮 Gaming": f"""
+Channel: Gaming Content
+Niche: Game reviews, walkthroughs, esports, gaming culture
+Target: Gamers, esports fans, streamers
+Style: Entertaining, informative, community-focused
+
+What works:
+- Tier lists
+- "I played X for 100 hours"
+- Hidden secrets/easter eggs
+- Competitive analysis
+
+Hook rules:
+- Start with shocking gameplay moment
+- Promise exclusive info
+- High energy, fast pace
+""",
+        
+        "🔧 Tech/Programming": f"""
+Channel: Tech/Programming Content
+Niche: Software development, tutorials, tech reviews, coding
+Target: Developers, tech enthusiasts, students
+Style: Educational, practical, code-focused
+
+What works:
+- "Build X in Y minutes"
+- Tool comparisons
+- Debugging horror stories
+- Career advice
+
+Hook rules:
+- Show the end result first
+- Promise specific skill gain
+- Keep it practical
+""",
+        
+        "🎬 General/Other": f"""
+Channel: General Content Creator
+Niche: Versatile, topic-agnostic, audience-first approach
+Target: Broad appeal, viral potential
+Style: Engaging, educational, entertaining
+
+Hook rules:
+- Curiosity gap in first sentence
+- Bold claim or surprising fact
+- Promise clear value
+- Keep it tight, no fluff
 """
+    }
+    
+    return CONTEXTS.get(niche, CONTEXTS["🎬 General/Other"])
 
 
 def fetch_competitor_videos(api_key, channels, n=20):
@@ -432,7 +549,7 @@ def analyze_patterns(videos, threshold=5000):
 
 def ai_virality(model,idea,fmt,funnel,ctx):
     return call_gemini(model,f"""
-You are a YouTube growth expert for algorithmic trading.
+You are a YouTube growth expert.
 {ctx}
 Idea: {idea}
 Format: {FORMAT_CONTEXT[fmt]}
@@ -446,7 +563,7 @@ Return ONLY valid JSON no markdown:
 
 def ai_title_hook(model,idea,fmt,funnel,ctx):
     return call_gemini(model,f"""
-You are a YouTube growth expert for algorithmic trading.
+You are a YouTube growth expert.
 {ctx}
 Idea: {idea}
 Format: {FORMAT_CONTEXT[fmt]}
@@ -468,7 +585,7 @@ def ai_script_part(model, idea, title, hook, funnel, ctx, fmt, part, prev=''):
         inst = 'Write FIRST HALF ~1000 words. End at natural transition.' if part == 1 else 'Write SECOND HALF ~1000 words. End with subscribe CTA then funnel CTA.'
         
     return call_gemini_text(model, f"""
-You are a YouTube scriptwriter for algorithmic trading.
+You are a YouTube scriptwriter.
 {ctx}
 Format: {FORMAT_CONTEXT[fmt]}
 Title: {title}
@@ -484,7 +601,7 @@ Return ONLY raw script text. No JSON. No markdown.
 
 def ai_packaging(model,idea,title,fmt,funnel,ctx):
     return call_gemini(model,f"""
-You are a YouTube packaging expert for algorithmic trading.
+You are a YouTube packaging expert.
 {ctx}
 Title: {title}
 Idea: {idea}
@@ -500,7 +617,7 @@ def ai_suggestions(model,trending,existing,ctx):
     tt='\n'.join([f"- {v['title']} ({v.get('views_per_day',0):,.0f}/day,{v.get('days_old',0)}d)" for v in trending[:5]])
     et='\n'.join([f"- {t}" for t in existing[:10]])
     return call_gemini(model,f"""
-YouTube content strategist for algorithmic trading.
+YouTube content strategist.
 {ctx}
 Trending:\n{tt}
 Posted (do not repeat):\n{et}
@@ -520,7 +637,7 @@ def ai_score(model,title,hook,ctx,real_ctr=None,real_ret=None):
     cal=f'Real CTR:{real_ctr}%. Retention:{real_ret}%. Calibrate.' if real_ctr else ''
     hs_=f'Score this hook:\n{hook}' if hook else 'No hook.'
     return call_gemini(model,f"""
-YouTube growth expert for algorithmic trading.
+YouTube growth expert.
 {ctx}
 Format:{fmt_note}
 Title:{title}
@@ -536,7 +653,7 @@ Return ONLY valid JSON no markdown:
 
 def ai_thumbnail_prompt(model, title, key_result, style='dark'):
     result = call_gemini(model, f"""
-You are a thumbnail designer for algorithmic trading YouTube.
+You are a thumbnail designer for YouTube.
 Video title: {title}
 Key result: {key_result}
 Style: {style}
@@ -562,7 +679,7 @@ def generate_thumbnail_image(prompt_text):
 def ai_extract_shorts_from_long(model, long_script, ctx, funnel='ea'):
     """✅ NEW: Extract 3 distinct Shorts from a long script."""
     return call_gemini(model, f"""
-You are a YouTube Shorts strategist for algorithmic trading.
+You are a YouTube Shorts strategist.
 {ctx}
 Original Long Script:
 {long_script[:4000]}  # Truncate for token limit if huge
@@ -593,7 +710,7 @@ def generate_weekly_report(model, competitor_data, channel_config):
     ctx = build_context()
     tt = '\n'.join([f"- {v['title']} ({v.get('views_per_day',0):,.0f}/day)" for v in trending[:5]])
     return call_gemini(model, f"""
-YouTube content strategist for algorithmic trading.
+YouTube content strategist.
 {ctx}
 Trending this week:\n{tt}
 Channel stats: {channel_config.get('subscribers',5)} subs, {channel_config.get('avg_ctr',2.5)}% CTR, {channel_config.get('watch_hours',1.4)}h watch time.
@@ -854,13 +971,19 @@ def page_factory():
     # ── FULL FACTORY ──
     with tab1:
         section("Describe your video idea")
-        col1,col2,col3=st.columns([3,1,1])
-        with col1: idea=st.text_area("Idea",placeholder="e.g. Build a prop firm EA in MQL5 that monitors daily drawdown and shuts down when FTMO limit is hit",height=80,label_visibility='collapsed')
-        with col2: fmt=st.selectbox("Format",["long","short"])
-        with col3: funnel=st.selectbox("Funnel",list(FUNNEL_DESCRIPTIONS.keys()))
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+        with col1: 
+            idea = st.text_area("Idea", placeholder="e.g. Build a prop firm EA..." or "e.g. Why women say 'we need to talk' comedy bit", height=80, label_visibility='collapsed')
+        with col2: 
+            niche = st.selectbox("Niche", ["📈 Trading/Quant", "🎭 Comedy/Entertainment", "🏃 Sports/Fitness", "💼 Business/SaaS", "🎮 Gaming", "🔧 Tech/Programming", "🎬 General/Other"], key="factory_niche")
+        with col3: 
+            fmt = st.selectbox("Format", ["long", "short"], key="factory_fmt")
+        with col4: 
+            funnel = st.selectbox("Funnel", list(FUNNEL_DESCRIPTIONS.keys()), key="factory_funnel")
+        
         if st.button("⚡  Run Video Factory",use_container_width=True) and idea.strip():
             model=get_model()
-            ctx=build_context()
+            ctx=build_context(niche)  # ✅ Pass niche to context
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             section("Step 1 — Virality Check")
             with st.spinner("Checking virality..."):
@@ -971,7 +1094,7 @@ def page_factory():
                 st.markdown(f"<div class='video-card'><div style='display:flex;gap:0.5rem;align-items:center;margin-bottom:4px;'><span style='font-size:0.65rem;font-weight:700;color:#00e5a0;border:1px solid #00e5a0;border-radius:4px;padding:1px 6px;'>SHORT #{i}</span><span style='font-size:0.83rem;font-weight:600;'>{s.get('title','')}</span></div><div style='font-size:0.75rem;color:#9ca3af;margin-bottom:3px;'>Hook: {s.get('hook','')}</div><div style='font-size:0.72rem;color:#6b7280;'>Clip: {s.get('clip','')}</div></div>",unsafe_allow_html=True)
             section("CTA Script")
             st.markdown(f"<div class='script-block' style='font-size:0.82rem;'>{cta}</div>",unsafe_allow_html=True)
-            db_save('video_history',{'user_id':user_id,'idea':idea,'format':fmt,'funnel':funnel,'title':th['title'],'title_score':ts,'hook_score':hs,'virality_score':vs,'word_count':wc,'script':script,'tags':json.dumps(seo.get('tags',[])),'status':'generated','real_ctr':None,'real_retention':None},user_id)
+            db_save('video_history',{'user_id':user_id,'idea':idea,'format':fmt,'funnel':funnel,'niche':niche,'title':th['title'],'title_score':ts,'hook_score':hs,'virality_score':vs,'word_count':wc,'script':script,'tags':json.dumps(seo.get('tags',[])),'status':'generated','real_ctr':None,'real_retention':None},user_id)
             st.markdown("<hr class='divider'>",unsafe_allow_html=True)
             st.markdown(f"<div style='background:rgba(0,229,160,0.05);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:1.25rem;'><div style='font-size:0.9rem;font-weight:700;color:#00e5a0;margin-bottom:0.75rem;'>✅  Video Factory Complete — saved to History</div><div style='display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;'><span style='font-size:0.8rem;color:#9ca3af;'>Virality <b style='color:#00e5a0;'>{vs}/100</b></span><span style='font-size:0.8rem;color:#9ca3af;'>Title <b style='color:#00e5a0;'>{ts}/100</b></span><span style='font-size:0.8rem;color:#00e5a0;'>Hook <b>{hs}/100</b></span><span style='font-size:0.8rem;color:#9ca3af;'>Script <b style='color:#e8eaf0;'>{wc} words</b></span><span style='font-size:0.8rem;color:#9ca3af;'>~{est} min</span></div><div style='font-size:0.8rem;color:#6b7280;line-height:1.8;'>1. Download TTS script → paste into Chatterbox &nbsp;·&nbsp; 2. Build thumbnail in Canva &nbsp;·&nbsp; 3. Record OBS &nbsp;·&nbsp; 4. Sync Shotcut &nbsp;·&nbsp; 5. Upload with SEO &nbsp;·&nbsp; 6. Come back to History to log real CTR</div></div>",unsafe_allow_html=True)
 
@@ -1319,7 +1442,7 @@ SUPABASE_KEY = "eyJ..."
     st.code("""-- Run this in Supabase SQL Editor
 create table video_history (
   id uuid default gen_random_uuid() primary key,
-  user_id text, idea text, format text, funnel text,
+  user_id text, idea text, format text, funnel text, niche text,
   title text, title_score int, hook_score int,
   virality_score int, word_count int, script text,
   tags text, status text default 'generated',
